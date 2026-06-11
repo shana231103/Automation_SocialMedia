@@ -8,7 +8,8 @@ class AutomationService(ABC):
         self,
         username: str,
         password: str,
-        platform: Platform
+        platform: Platform,
+        profile_key: str
     ) -> Generator[Dict[str, Any], None, None]:
         """
         Runs the login automation.

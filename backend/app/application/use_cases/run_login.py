@@ -27,7 +27,8 @@ class RunLoginUseCase:
         
         try:
             # Stream logs from automation service
-            for progress in self.automation_service.run_login(account.username, account.password, account.platform):
+            profile_key = f"{account.platform.value}_{account.id}"
+            for progress in self.automation_service.run_login(account.username, account.password, account.platform, profile_key):
                 if progress["type"] == "log":
                     yield progress
                 elif progress["type"] == "result":
