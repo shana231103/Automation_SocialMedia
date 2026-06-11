@@ -36,7 +36,7 @@ def login_tiktok(page: ChromiumPage, username: str, password: str, log_func) -> 
         for i in range(16): # 16 * 0.5s = 8s
             time.sleep(0.5)
             # Check if captcha is visible
-            if page.ele("css:[id='captcha-wrapper']", timeout=0.1) or page.ele("css:.captcha-slider", timeout=0.1) or "captcha" in page.html.lower():
+            if page.ele("css:[id='captcha-wrapper']", timeout=0.1) or page.ele("css:.captcha-slider", timeout=0.1) or page.ele("css:.captcha_verify_container", timeout=0.1):
                 captcha_detected = True
                 break
             # Check if logged in early
