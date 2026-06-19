@@ -63,6 +63,21 @@ class DrissionPageAutomationService(AutomationService):
             final_status_val = LoginStatus.LOGGED_OUT
         finally:
             if page:
+                try:
+                    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+                    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file_dir)))
+                    screenshots_dir = os.path.join(backend_dir, "screenshots")
+                    os.makedirs(screenshots_dir, exist_ok=True)
+                    
+                    timestamp = int(time.time())
+                    screenshot_name = f"{profile_key}_{timestamp}.png"
+                    screenshot_path = os.path.join(screenshots_dir, screenshot_name)
+                    
+                    page.get_screenshot(path=screenshot_path, full_page=False)
+                    yield log(f"Đã chụp ảnh màn hình lưu tại: backend/screenshots/{screenshot_name}")
+                except Exception as e_ss:
+                    yield log(f"Không thể chụp ảnh màn hình: {str(e_ss)}")
+
                 yield log("Đang tắt trình duyệt...")
                 try:
                     # Let the browser window stay open for 3 seconds so user can see final state
