@@ -59,16 +59,39 @@ def login_youtube(page: ChromiumPage, username: str, password: str, log_func) ->
                 pass_input.input("\n")
                 
             yield log_func("Đang đợi xác thực từ Google (chờ động tối đa 10 giây)...")
-            
-            # Dynamic polling for authentication result
+                       # Dynamic polling for authentication result
             final_status = LoginStatus.LOGGED_OUT
             for _ in range(20): # up to 10s
                 time.sleep(0.5)
                 url = page.url
+                
+                # Check for 2FA / verification challenge
                 if "signin/v2/challenge" in url or "signin/challenge" in url or "twofactor" in url or page.ele("text:Xác minh danh tính", timeout=0.1) or page.ele("text:Verify it's you", timeout=0.1):
-                    yield log_func("Yêu cầu mã 2FA / Xác minh bảo mật.")
-                    final_status = LoginStatus.CHECKPOINT
-                    break
+                    yield log_func("Phát hiện yêu cầu xác minh bảo mật / mã 2FA từ Google. Vui lòng thực hiện xác minh trực tiếp trên trình duyệt (Chờ tối đa 60 giây)...")
+                    
+                    # Wait for user to complete 2FA for up to 60s (120 * 0.5s)
+                    solved_2fa = False
+                    for _ in range(120):
+                        time.sleep(0.5)
+                        url = page.url
+                        if "youtube.com" in url or page.ele("css:#avatar-btn", timeout=0.1) or page.ele("css:ytd-app", timeout=0.1):
+                            yield log_func("Đăng nhập Google / YouTube thành công sau xác minh.")
+                            final_status = LoginStatus.LOGGED_IN
+                            solved_2fa = True
+                            break
+                        if "disabled" in url or page.ele("text:Tài khoản của bạn đã bị vô hiệu hóa", timeout=0.1) or page.ele("text:Your account has been disabled", timeout=0.1):
+                            yield log_func("Tài khoản Google đã bị vô hiệu hóa.")
+                            final_status = LoginStatus.DEAD
+                            solved_2fa = True
+                            break
+                            
+                    if solved_2fa:
+                        break
+                    else:
+                        yield log_func("Hết thời gian chờ người dùng thực hiện xác minh 2FA / bảo mật.")
+                        final_status = LoginStatus.CHECKPOINT
+                        break
+                        
                 elif "disabled" in url or page.ele("text:Tài khoản của bạn đã bị vô hiệu hóa", timeout=0.1) or page.ele("text:Your account has been disabled", timeout=0.1):
                     yield log_func("Tài khoản Google đã bị vô hiệu hóa.")
                     final_status = LoginStatus.DEAD

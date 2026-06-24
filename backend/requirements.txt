@@ -6,3 +6,4 @@ DrissionPage==4.1.0.8
 pydantic-settings==2.3.4
 pydantic==2.8.2
 python-dotenv==1.0.1
+requests==2.32.3
