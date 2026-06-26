@@ -192,7 +192,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # IDEs and editors
-/.vscode/
+.vscode/
 .idea/
 
 # OS files
@@ -211,6 +211,7 @@ ehthumbs.db
 # Logs and temp
 logs/
 *.log
+/backend/screenshots/
 
 # Database files (local)
 *.db
