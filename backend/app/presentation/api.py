@@ -1,3 +1,4 @@
+import os
 import json
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,12 +7,21 @@ from sqlalchemy.orm import Session
 from app.infrastructure.database.connection import get_db
 from app.infrastructure.database.repositories import SqlAlchemyAccountRepository, SqlAlchemyLoginHistoryRepository
 from app.infrastructure.automation.drission_page import DrissionPageAutomationService
+from app.application.interfaces import AutomationService
 from app.application.use_cases.manage_accounts import GetAccountsUseCase, CreateAccountUseCase, DeleteAccountUseCase
 from app.application.use_cases.run_login import RunLoginUseCase
 from app.application.use_cases.view_history import GetLoginHistoryUseCase, ClearLoginHistoryUseCase
 from app.presentation.schemas import AccountCreate, AccountResponse, LoginHistoryResponse
 
 router = APIRouter(prefix="/api")
+
+def get_automation_service() -> AutomationService:
+    provider = os.getenv("AUTOMATION_PROVIDER", "drissionpage").lower()
+    if provider == "playwright":
+        from app.infrastructure.automation.playwright_service import PlaywrightAutomationService
+        return PlaywrightAutomationService()
+    return DrissionPageAutomationService()
+
 
 @router.get("/accounts", response_model=List[AccountResponse])
 def get_accounts(db: Session = Depends(get_db)):
@@ -54,10 +64,13 @@ def clear_history(db: Session = Depends(get_db)):
     return {"message": "Đã xóa lịch sử thành công"}
 
 @router.get("/run-login/{account_id}")
-def run_login(account_id: int, db: Session = Depends(get_db)):
+def run_login(
+    account_id: int, 
+    db: Session = Depends(get_db),
+    automation_service: AutomationService = Depends(get_automation_service)
+):
     account_repo = SqlAlchemyAccountRepository(db)
     history_repo = SqlAlchemyLoginHistoryRepository(db)
-    automation_service = DrissionPageAutomationService()
     
     use_case = RunLoginUseCase(
         account_repo=account_repo,

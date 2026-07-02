@@ -1,12 +1,12 @@
 # Automation Social Media - Backend
 
-Hệ thống Backend tự động hóa đăng nhập và tương tác trên các nền tảng mạng xã hội (Facebook, YouTube, TikTok, Twitter) sử dụng **FastAPI**, **SQLAlchemy (PostgreSQL)** và **DrissionPage**.
+Hệ thống Backend tự động hóa đăng nhập và tương tác trên các nền tảng mạng xã hội (Facebook, YouTube, TikTok, Twitter) sử dụng **FastAPI**, **SQLAlchemy (PostgreSQL)**, **DrissionPage** và **Playwright**.
 
 ---
 
 ## 1. Tính năng nổi bật
 - **API Đăng nhập Tự động**: Hỗ trợ đăng nhập tự động qua trình duyệt antidetect (như GemLogin, GoLogin,...) hoặc trình duyệt local thuần thông qua dòng lệnh.
-- **Kiến trúc Linh hoạt (Dependency Injection)**: Lớp dịch vụ tự động hóa giao tiếp qua Interface chung, dễ dàng thay đổi giữa các nhà cung cấp trình duyệt khác nhau mà không cần sửa đổi mã nguồn nghiệp vụ.
+- **Kiến trúc Linh hoạt & Đa Driver (Dependency Injection)**: Lớp dịch vụ tự động hóa giao tiếp qua Interface chung (`AutomationService`). Người dùng có thể dễ dàng chuyển đổi qua lại giữa **DrissionPage** và **Playwright** thông qua tệp cấu hình `.env` mà không ảnh hưởng tới code logic nghiệp vụ.
 - **Tự động hóa an toàn (Context Manager)**: Đảm bảo đóng trình duyệt sạch sẽ và chụp ảnh màn hình lưu vết lỗi/kết quả khi phiên kết thúc hoặc xảy ra lỗi bất ngờ.
 - **Luồng Server-Sent Events (SSE)**: Stream log thời gian thực từ backend về frontend để người dùng theo dõi tiến trình chạy kịch bản tự động hóa trực quan.
 
@@ -20,10 +20,14 @@ backend/
 │   ├── domain/             # Chứa Entities (Models nghiệp vụ) và định nghĩa Repositories
 │   ├── infrastructure/     # Cài đặt cụ thể Database (PostgreSQL), Repositories và Automation
 │   │   ├── database/       # Cấu hình SQLAlchemy Connection, Models database, và Repositories
-│   │   └── automation/     # Logic tự động hóa DrissionPage và quản lý trình duyệt
-│   │       ├── platforms/  # Kịch bản cụ thể cho Facebook, YouTube, TikTok, Twitter
-│   │       ├── gemlogin_browser.py  # Bộ quản lý trình duyệt qua GemLogin API
-│   │       └── local_browser.py     # Bộ quản lý trình duyệt qua dòng lệnh local
+│   │   └── automation/     # Logic tự động hóa trình duyệt và quản lý vòng đời
+│   │       ├── platforms_drissionpage/  # Kịch bản DrissionPage (FB, YT, TT, TW)
+│   │       ├── platforms_playwright/    # Kịch bản Playwright (FB, YT, TT, TW)
+│   │       ├── gemlogin_browser.py      # Bộ quản lý trình duyệt GemLogin (DrissionPage)
+│   │       ├── local_browser.py         # Bộ quản lý trình duyệt local (DrissionPage)
+│   │       ├── playwright_browser.py    # Bộ quản lý trình duyệt GemLogin & local (Playwright)
+│   │       ├── drission_page.py         # Dịch vụ tự động hóa DrissionPage
+│   │       └── playwright_service.py    # Dịch vụ tự động hóa Playwright
 │   └── presentation/       # Lớp giao tiếp FastAPI endpoints (API Routes) và Schemas
 ├── docs/                   # Tài liệu hướng dẫn (Đào tạo refactoring, v.v.)
 ├── requirements.txt        # Các thư viện phụ thuộc của Python
@@ -59,6 +63,9 @@ backend/
 4. **Cấu hình file môi trường `.env`**:
    Tạo file `.env` ở thư mục gốc của backend với nội dung tương tự sau:
    ```env
+   # Chọn công cụ tự động hóa: playwright hoặc drissionpage
+   AUTOMATION_PROVIDER=playwright
+
    DATABASE_URL=postgresql://postgres:password@localhost:5432/social_automation
    GEMLOGIN_API_URL=http://127.0.0.1:1010/api
    GEMLOGIN_PROFILE_NAME=default
@@ -82,15 +89,16 @@ Server Swagger UI sẽ khả dụng tại địa chỉ: [http://127.0.0.1:8000/d
 ### 4.1 Chạy Unit Test (Kiểm thử đơn vị cô lập)
 Sử dụng bộ test giả lập (Mocking) không cần DB hay GemLogin thật:
 ```bash
-.venv/bin/python -m unittest /Users/kyle/.gemini/antigravity-ide/brain/daad858c-9472-4203-84bf-7cd843eb79b6/scratch/test_gemlogin_browser.py
+python -m unittest discover -s .
 ```
 *(Hoặc chạy qua Makefile: `make test`)*
 
 ### 4.2 Chạy Integration Test (Kiểm thử tích hợp)
-Chạy thử kịch bản đăng nhập thực tế (Yêu cầu bật PostgreSQL và GemLogin):
+Chạy thử kịch bản đăng nhập thực tế (Tự động đọc cấu hình driver từ file `.env`):
 ```bash
 python test_automation.py
 ```
+*(Hoặc chạy qua Makefile: `make test-integration`)*
 
 ---
 

@@ -30,7 +30,7 @@ run:
 	$(UVICORN) app.main:app --reload --port 8000
 
 test:
-	$(PYTHON) /Users/kyle/.gemini/antigravity-ide/brain/daad858c-9472-4203-84bf-7cd843eb79b6/scratch/test_gemlogin_browser.py
+	$(PYTHON) -m unittest discover -s .
 
 test-integration:
 	$(PYTHON) test_automation.py

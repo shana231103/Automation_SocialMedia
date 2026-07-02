@@ -8,7 +8,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from app.infrastructure.database.connection import SessionLocal, engine
 from app.infrastructure.database.models import Base
 from app.infrastructure.database.repositories import SqlAlchemyAccountRepository, SqlAlchemyLoginHistoryRepository
-from app.infrastructure.automation.drission_page import DrissionPageAutomationService
+from dotenv import load_dotenv
+load_dotenv()
+
 from app.application.use_cases.manage_accounts import CreateAccountUseCase
 from app.application.use_cases.run_login import RunLoginUseCase
 from app.domain.models import Platform
@@ -21,7 +23,17 @@ def run_test():
     try:
         account_repo = SqlAlchemyAccountRepository(db)
         history_repo = SqlAlchemyLoginHistoryRepository(db)
-        automation_service = DrissionPageAutomationService()
+        
+        provider = os.getenv("AUTOMATION_PROVIDER", "drissionpage").lower()
+        if provider == "playwright":
+            from app.infrastructure.automation.playwright_service import PlaywrightAutomationService
+            automation_service = PlaywrightAutomationService()
+            print("Using PLAYWRIGHT automation service for test.")
+        else:
+            from app.infrastructure.automation.drission_page import DrissionPageAutomationService
+            automation_service = DrissionPageAutomationService()
+            print("Using DRISSIONPAGE automation service for test.")
+
         
         # 1. Create a mock account for test
         print("\nAdding a mock Facebook account...")

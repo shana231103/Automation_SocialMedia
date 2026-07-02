@@ -4,7 +4,22 @@ Mọi thay đổi lớn đối với dự án này sẽ được ghi nhận và 
 
 ---
 
+## [1.2.0] - 2026-07-02
+
+### Thêm mới (Added)
+- **Tích hợp Playwright**: Bổ sung `PlaywrightAutomationService` cùng các kịch bản đăng nhập Playwright cho 4 nền tảng mạng xã hội (Facebook, YouTube, TikTok, Twitter).
+- **Cấu hình chuyển đổi tự động**: Thêm cấu hình `AUTOMATION_PROVIDER` vào tệp `.env` và áp dụng cơ chế Dependency Injection ở lớp Presentation của FastAPI (`api.py`) để chuyển đổi linh hoạt giữa DrissionPage và Playwright.
+- **Tách tệp helper CSS Frontend**: Tạo mới tệp `helpers.js` dùng chung để định dạng màu sắc badge và nền tảng.
+- **Các thành phần Frontend riêng biệt**: Tái cấu trúc giao diện Vue 3, chia nhỏ `App.vue` thành các component: `Header.vue`, `AccountForm.vue`, `AccountList.vue`, `ConsoleTerminal.vue`, `HistoryTable.vue`, `LogsModal.vue`.
+
+### Thay đổi (Changed)
+- **Đổi tên thư mục kịch bản**: Đổi tên thư mục `platforms` của DrissionPage thành `platforms_drissionpage` để đồng bộ cấu trúc với `platforms_playwright`.
+- **Tối ưu hóa Event Loop trên Windows**: Thiết lập `WindowsProactorEventLoopPolicy` để khắc phục triệt để lỗi `NotImplementedError` khi chạy tiến trình con của Playwright trên Windows.
+
+---
+
 ## [1.1.0] - 2026-06-25
+
 
 ### Thêm mới (Added)
 - **Interface `BrowserContextManager`**: Định nghĩa giao diện tiêu chuẩn cho các dịch vụ quản lý trình duyệt tự động hóa kịch bản, kế thừa cơ chế Context Manager của Python (`__enter__`, `__exit__`).

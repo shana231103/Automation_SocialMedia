@@ -4,31 +4,28 @@ from typing import Generator, Any, Callable
 from app.domain.models import Platform, LoginStatus
 from app.application.interfaces import AutomationService, BrowserContextManager
 
-from app.infrastructure.automation.platforms_drissionpage.facebook import login_facebook
-from app.infrastructure.automation.platforms_drissionpage.youtube import login_youtube
-from app.infrastructure.automation.platforms_drissionpage.tiktok import login_tiktok
-from app.infrastructure.automation.platforms_drissionpage.twitter import login_twitter
+from app.infrastructure.automation.platforms_playwright.facebook import login_facebook
+from app.infrastructure.automation.platforms_playwright.youtube import login_youtube
+from app.infrastructure.automation.platforms_playwright.tiktok import login_tiktok
+from app.infrastructure.automation.platforms_playwright.twitter import login_twitter
 
-from app.infrastructure.automation.gemlogin_browser import GemLoginBrowser
-
+from app.infrastructure.automation.playwright_browser import GemLoginPlaywrightBrowser
 
 def default_browser_manager_factory(profile_key: str) -> BrowserContextManager:
-    # pyrefly: ignore [missing-import]
     from dotenv import load_dotenv
-
     _ = load_dotenv()
+    
     gemlogin_api_url = os.getenv("GEMLOGIN_API_URL", "http://127.0.0.1:1010/api")
     gemlogin_profile_id = os.getenv("GEMLOGIN_PROFILE_ID")
     gemlogin_profile_name = os.getenv("GEMLOGIN_PROFILE_NAME")
-    return GemLoginBrowser(
+    return GemLoginPlaywrightBrowser(
         profile_key=profile_key,
         gemlogin_api_url=gemlogin_api_url,
         gemlogin_profile_id=gemlogin_profile_id,
         gemlogin_profile_name=gemlogin_profile_name,
     )
 
-
-class DrissionPageAutomationService(AutomationService):
+class PlaywrightAutomationService(AutomationService):
     _browser_manager_factory: Callable[[str], BrowserContextManager]
 
     def __init__(
@@ -51,7 +48,6 @@ class DrissionPageAutomationService(AutomationService):
             return {"type": "log", "message": msg}
 
         final_status_val = LoginStatus.LOGGED_OUT
-
         browser_manager = self._browser_manager_factory(profile_key)
 
         try:
@@ -77,14 +73,15 @@ class DrissionPageAutomationService(AutomationService):
                         page, username, password, log
                     )
                 else:
-                    yield log(f"Nền tảng {platform} chưa được hỗ trợ.")
+                    yield log(f"Nền tảng {platform} chưa được hỗ trợ bởi Playwright.")
                     final_status_val = LoginStatus.LOGGED_OUT
 
         except Exception as e:
+            import traceback
             # Yield any logs that were added during setup or before raising the error
             for log_msg in browser_manager.get_new_logs():
                 yield log(log_msg)
-            yield log(f"Lỗi hệ thống khi tự động hóa: {str(e)}")
+            yield log(f"Lỗi hệ thống khi tự động hóa qua Playwright: {str(e)}\n{traceback.format_exc()}")
             final_status_val = LoginStatus.LOGGED_OUT
         finally:
             # Yield remaining cleanup logs
