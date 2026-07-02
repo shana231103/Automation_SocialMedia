@@ -1,0 +1,44 @@
+{
+  "modules": [
+    {
+      "name": "backend_domain",
+      "path": "backend/app/domain",
+      "purpose": "Contains the domain entities, enums, and repository contract interfaces.",
+      "services": [],
+      "repositories": ["AccountRepository", "LoginHistoryRepository"],
+      "dependencies": []
+    },
+    {
+      "name": "backend_application",
+      "path": "backend/app/application",
+      "purpose": "Contains abstract workflow adapters, use cases, and browser context managers.",
+      "services": [],
+      "repositories": [],
+      "dependencies": ["backend_domain"]
+    },
+    {
+      "name": "backend_infrastructure",
+      "path": "backend/app/infrastructure",
+      "purpose": "Contains DB models, postgres database connections, and Playwright/DrissionPage drivers.",
+      "services": ["DrissionPageService", "PlaywrightService"],
+      "repositories": ["SQLAlchemyAccountRepository", "SQLAlchemyLoginHistoryRepository"],
+      "dependencies": ["backend_domain", "backend_application"]
+    },
+    {
+      "name": "backend_presentation",
+      "path": "backend/app/presentation",
+      "purpose": "Contains FastAPI REST API endpoints, schemas, and log event streaming controllers.",
+      "services": [],
+      "repositories": [],
+      "dependencies": ["backend_domain", "backend_application", "backend_infrastructure"]
+    },
+    {
+      "name": "frontend",
+      "path": "frontend",
+      "purpose": "Contains Vue 3 UI layout, account dashboard, and log viewers.",
+      "services": ["API Client"],
+      "repositories": [],
+      "dependencies": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "entities": [
+    { "name": "Account", "type": "entity", "module": "backend_domain" },
+    { "name": "LoginHistory", "type": "entity", "module": "backend_domain" },
+    { "name": "Platform", "type": "enum", "module": "backend_domain" },
+    { "name": "LoginStatus", "type": "enum", "module": "backend_domain" },
+    { "name": "AccountCreate", "type": "dto", "module": "backend_presentation" },
+    { "name": "AccountResponse", "type": "dto", "module": "backend_presentation" },
+    { "name": "AccountUpdate", "type": "dto", "module": "backend_presentation" },
+    { "name": "LoginHistoryResponse", "type": "dto", "module": "backend_presentation" }
+  ]
+}

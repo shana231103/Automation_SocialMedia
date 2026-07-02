@@ -1,0 +1,7 @@
+{
+  "project_id": "automation_socialmedia",
+  "memory_root": ".agents/memory",
+  "vector_provider": "qdrant",
+  "vector_collection": "automation_socialmedia-memory",
+  "embedding_model": "nomic-embed-text"
+}

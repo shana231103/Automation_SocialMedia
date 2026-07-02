@@ -1,0 +1,152 @@
+# File: backend/app/infrastructure/automation/adapters/playwright_adapter.py
+"""
+Playwright (sync_api) concrete adapter implementing AutomationPage and AutomationElement.
+
+Translates canonical DrissionPage-style selector strings (css:, text:, xpath:)
+to Playwright-compatible format, and wraps all timeout errors as None returns
+so platform scripts can use simple `if page.find(...):` patterns safely.
+"""
+
+from __future__ import annotations
+
+from playwright.sync_api import Locator, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+from app.infrastructure.automation.page_wrapper import AutomationElement, AutomationPage
+
+
+# ---------------------------------------------------------------------------
+# Selector translation
+# ---------------------------------------------------------------------------
+
+def _to_playwright_selector(selector: str) -> str:
+    """
+    Translate a canonical DrissionPage-style selector to a Playwright selector.
+
+    Transformations applied:
+      css:sel       -> sel          Strip 'css:' prefix (Playwright uses raw CSS)
+      text:val      -> text=val     Playwright partial-text selector (matches partial)
+      xpath://expr  -> //expr       Playwright accepts raw XPath strings
+      #id or plain  -> unchanged    Both are valid Playwright CSS selectors
+
+    Examples:
+        "css:input[name='email']" -> "input[name='email']"
+        "text:Next"               -> "text=Next"
+        "xpath://button"          -> "//button"
+        "#email"                  -> "#email"
+        "[role='feed']"           -> "[role='feed']"
+    """
+    if selector.startswith("css:"):
+        return selector[4:]
+    if selector.startswith("text:"):
+        return f"text={selector[5:]}"
+    if selector.startswith("xpath:"):
+        return selector[6:]
+    return selector
+
+
+# ---------------------------------------------------------------------------
+# AutomationElement implementation
+# ---------------------------------------------------------------------------
+
+class PlaywrightElement(AutomationElement):
+    """Wraps a Playwright Locator (first match) as an AutomationElement."""
+
+    def __init__(self, locator: Locator, page: Page) -> None:
+        self._locator = locator
+        self._page = page
+
+    def input(self, text: str) -> None:
+        try:
+            self._locator.fill(text)
+        except Exception as exc:
+            raise RuntimeError(f"Playwright fill() failed: {exc}") from exc
+
+    def click(self, by_js: bool = False) -> None:
+        if not by_js:
+            try:
+                self._locator.click()
+                return
+            except Exception as exc:
+                raise RuntimeError(f"Playwright click() failed: {exc}") from exc
+
+        # by_js=True: try JS evaluate first, then Enter-key as final fallback.
+        try:
+            element_handle = self._locator.element_handle(timeout=2000)
+            if element_handle:
+                self._page.evaluate("el => el.click()", element_handle)
+                return
+        except Exception:
+            pass
+
+        try:
+            self._locator.press("Enter")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Playwright click(by_js=True) failed via JS evaluate and Enter fallback: {exc}"
+            ) from exc
+
+    def press(self, key: str) -> None:
+        try:
+            self._locator.press(key)
+        except Exception as exc:
+            raise RuntimeError(f"Playwright press({key!r}) failed: {exc}") from exc
+
+    def exists(self) -> bool:
+        try:
+            return self._locator.count() > 0
+        except Exception:
+            return False
+
+
+# ---------------------------------------------------------------------------
+# AutomationPage implementation
+# ---------------------------------------------------------------------------
+
+class PlaywrightPageWrapper(AutomationPage):
+    """Wraps a Playwright sync Page as an AutomationPage."""
+
+    def __init__(self, page: Page) -> None:
+        self._page = page
+
+    def goto(self, url: str) -> None:
+        try:
+            self._page.goto(url)
+        except Exception as exc:
+            raise RuntimeError(f"Playwright goto({url!r}) failed: {exc}") from exc
+
+    def find(self, selector: str, timeout: float = 5.0) -> PlaywrightElement | None:
+        pw_selector = _to_playwright_selector(selector)
+        locator = self._page.locator(pw_selector).first
+        try:
+            locator.wait_for(state="attached", timeout=timeout * 1000)
+            return PlaywrightElement(locator, self._page)
+        except PlaywrightTimeoutError:
+            return None
+        except Exception:
+            return None
+
+    def find_first(self, *selectors: str, timeout: float = 5.0) -> PlaywrightElement | None:
+        if not selectors:
+            return None
+        # Distribute budget evenly; enforce minimum 0.5s per probe.
+        per_probe = max(0.5, timeout / len(selectors))
+        for selector in selectors:
+            el = self.find(selector, timeout=per_probe)
+            if el is not None:
+                return el
+        return None
+
+    @property
+    def url(self) -> str:
+        try:
+            return self._page.url or ""
+        except Exception:
+            return ""
+
+    @property
+    def html(self) -> str:
+        try:
+            return self._page.content() or ""
+        except Exception:
+            return ""

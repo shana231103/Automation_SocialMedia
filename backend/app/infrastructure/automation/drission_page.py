@@ -4,12 +4,9 @@ from typing import Generator, Any, Callable
 from app.domain.models import Platform, LoginStatus
 from app.application.interfaces import AutomationService, BrowserContextManager
 
-from app.infrastructure.automation.platforms_drissionpage.facebook import login_facebook
-from app.infrastructure.automation.platforms_drissionpage.youtube import login_youtube
-from app.infrastructure.automation.platforms_drissionpage.tiktok import login_tiktok
-from app.infrastructure.automation.platforms_drissionpage.twitter import login_twitter
-
+from app.infrastructure.automation.adapters import DrissionPageWrapper
 from app.infrastructure.automation.gemlogin_browser import GemLoginBrowser
+from app.infrastructure.automation.actions import ACTION_REGISTRY
 
 
 def default_browser_manager_factory(profile_key: str) -> BrowserContextManager:
@@ -42,7 +39,17 @@ class DrissionPageAutomationService(AutomationService):
     def run_login(
         self, username: str, password: str, platform: Platform, profile_key: str
     ) -> Generator[dict[str, Any], None, None]:
+        # Delegate to run_action for backward compatibility
+        params = {
+            "username": username,
+            "password": password,
+            "platform": platform
+        }
+        yield from self.run_action("login", params, profile_key)
 
+    def run_action(
+        self, action_name: str, params: dict[str, Any], profile_key: str
+    ) -> Generator[dict[str, Any], None, None]:
         # Initialize execution logs
         execution_logs: list[str] = []
 
@@ -52,39 +59,38 @@ class DrissionPageAutomationService(AutomationService):
 
         final_status_val = LoginStatus.LOGGED_OUT
 
+        # Resolve Action class from registry
+        action_class = ACTION_REGISTRY.get(action_name)
+        if not action_class:
+            yield log(f"Hành động '{action_name}' không được đăng ký trong hệ thống.")
+            yield {
+                "type": "result",
+                "status": final_status_val,
+                "logs": "\n".join(execution_logs),
+            }
+            return
+
         browser_manager = self._browser_manager_factory(profile_key)
 
         try:
-            with browser_manager as page:
+            with browser_manager as native_page:
                 # Yield setup logs
                 for log_msg in browser_manager.get_new_logs():
                     yield log(log_msg)
 
-                if platform == Platform.FACEBOOK:
-                    final_status_val = yield from login_facebook(
-                        page, username, password, log
-                    )
-                elif platform == Platform.YOUTUBE:
-                    final_status_val = yield from login_youtube(
-                        page, username, password, log
-                    )
-                elif platform == Platform.TIKTOK:
-                    final_status_val = yield from login_tiktok(
-                        page, username, password, log
-                    )
-                elif platform == Platform.TWITTER:
-                    final_status_val = yield from login_twitter(
-                        page, username, password, log
-                    )
-                else:
-                    yield log(f"Nền tảng {platform} chưa được hỗ trợ.")
-                    final_status_val = LoginStatus.LOGGED_OUT
+                page = DrissionPageWrapper(native_page)
+                action_instance = action_class()
+                
+                # Execute action strategy
+                final_status_val = yield from action_instance.execute(
+                    page, params, log
+                )
 
         except Exception as e:
             # Yield any logs that were added during setup or before raising the error
             for log_msg in browser_manager.get_new_logs():
                 yield log(log_msg)
-            yield log(f"Lỗi hệ thống khi tự động hóa: {str(e)}")
+            yield log(f"Lỗi hệ thống khi tự động hóa hành động '{action_name}': {str(e)}")
             final_status_val = LoginStatus.LOGGED_OUT
         finally:
             # Yield remaining cleanup logs
@@ -97,3 +103,4 @@ class DrissionPageAutomationService(AutomationService):
                 "status": final_status_val,
                 "logs": "\n".join(execution_logs),
             }
+

@@ -216,3 +216,6 @@ logs/
 # Database files (local)
 *.db
 *.db-journal
+
+# Vector storage (local)
+.qdrant_storage/

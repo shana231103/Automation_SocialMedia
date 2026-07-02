@@ -1,0 +1,18 @@
+{
+  "nodes": [
+    { "id": "backend_domain", "type": "module" },
+    { "id": "backend_application", "type": "module" },
+    { "id": "backend_infrastructure", "type": "module" },
+    { "id": "backend_presentation", "type": "module" },
+    { "id": "frontend", "type": "module" }
+  ],
+  "edges": [
+    { "from": "backend_application", "to": "backend_domain", "type": "depends_on" },
+    { "from": "backend_infrastructure", "to": "backend_domain", "type": "depends_on" },
+    { "from": "backend_infrastructure", "to": "backend_application", "type": "depends_on" },
+    { "from": "backend_presentation", "to": "backend_domain", "type": "depends_on" },
+    { "from": "backend_presentation", "to": "backend_application", "type": "depends_on" },
+    { "from": "backend_presentation", "to": "backend_infrastructure", "type": "depends_on" },
+    { "from": "frontend", "to": "backend_presentation", "type": "calls" }
+  ]
+}

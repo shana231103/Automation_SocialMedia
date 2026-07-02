@@ -1,0 +1,142 @@
+{
+  "files": [
+    {
+      "path": "backend/app/domain/models.py",
+      "type": "entity",
+      "module": "backend_domain",
+      "memory_ref": "modules/backend_domain.md"
+    },
+    {
+      "path": "backend/app/domain/repositories.py",
+      "type": "interface",
+      "module": "backend_domain",
+      "memory_ref": "modules/backend_domain.md"
+    },
+    {
+      "path": "backend/app/application/interfaces.py",
+      "type": "interface",
+      "module": "backend_application",
+      "memory_ref": "modules/backend_application.md"
+    },
+    {
+      "path": "backend/app/infrastructure/database/connection.py",
+      "type": "config",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/database/models.py",
+      "type": "entity",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/database/repositories.py",
+      "type": "repository",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/gemlogin_browser.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/local_browser.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/playwright_browser.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/drission_page.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/playwright_service.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/page_wrapper.py",
+      "type": "interface",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/adapters/drissionpage_adapter.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/adapters/playwright_adapter.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/actions/action_base.py",
+      "type": "interface",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/actions/login_action.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/platforms/facebook.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/platforms/youtube.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/platforms/tiktok.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/infrastructure/automation/platforms/twitter.py",
+      "type": "service",
+      "module": "backend_infrastructure",
+      "memory_ref": "modules/backend_infrastructure.md"
+    },
+    {
+      "path": "backend/app/presentation/api.py",
+      "type": "handler",
+      "module": "backend_presentation",
+      "memory_ref": "modules/backend_presentation.md"
+    },
+    {
+      "path": "backend/app/presentation/schemas.py",
+      "type": "dto",
+      "module": "backend_presentation",
+      "memory_ref": "modules/backend_presentation.md"
+    },
+    {
+      "path": "backend/app/main.py",
+      "type": "config",
+      "module": "backend_presentation",
+      "memory_ref": "modules/backend_presentation.md"
+    }
+  ]
+}

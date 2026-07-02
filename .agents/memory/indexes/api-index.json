@@ -1,0 +1,18 @@
+{
+  "apis": [
+    {
+      "group": "accounts_api",
+      "protocol": "REST",
+      "base_path": "/api",
+      "endpoints": [
+        { "method": "GET", "path": "/accounts", "owner": "app.presentation.api.get_accounts" },
+        { "method": "POST", "path": "/accounts", "owner": "app.presentation.api.create_account" },
+        { "method": "PUT", "path": "/accounts/{id}", "owner": "app.presentation.api.update_account" },
+        { "method": "DELETE", "path": "/accounts/{id}", "owner": "app.presentation.api.delete_account" },
+        { "method": "GET", "path": "/accounts/{id}/login/stream", "owner": "app.presentation.api.run_account_login" },
+        { "method": "GET", "path": "/accounts/{id}/history", "owner": "app.presentation.api.get_account_history" },
+        { "method": "DELETE", "path": "/history", "owner": "app.presentation.api.clear_history" }
+      ]
+    }
+  ]
+}

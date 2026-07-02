@@ -4,6 +4,21 @@ Mọi thay đổi lớn đối với dự án này sẽ được ghi nhận và 
 
 ---
 
+## [1.3.0] - 2026-07-03
+
+### Thêm mới (Added)
+- **Kiến trúc kịch bản độc lập driver (Driver-Agnostic)**: Tạo interface `AutomationPage` và `AutomationElement` làm cầu nối trừu tượng giúp chạy kịch bản chung cho cả `DrissionPage` và `Playwright`.
+- **Command-Based Actions (Registry Pattern)**: Tách các kịch bản đăng nhập thành lớp `LoginAction` độc lập kế thừa từ `AutomationAction`, cho phép dịch vụ tự động hóa (`PlaywrightAutomationService` và `DrissionPageAutomationService`) điều phối tác vụ động thông qua `ACTION_REGISTRY`.
+- **Bộ Unit Test mới**: Thêm các tệp `test_page_wrapper.py`, `test_platforms_facebook.py`, và `test_action_registry.py` để kiểm thử toàn diện các adapter, dispatcher, và mock platform logic.
+
+### Thay đổi (Changed)
+- **Tương thích ngược**: Sửa đổi `drission_page.py` và `playwright_service.py` chuyển đổi `run_login` gọi ủy quyền sang dispatcher động `run_action` để không làm ảnh hưởng tới FastAPI presentation API hiện tại.
+
+### Loại bỏ (Removed)
+- **Xóa kịch bản trùng lặp**: Loại bỏ hoàn toàn các thư mục kịch bản cũ `platforms_drissionpage` và `platforms_playwright`.
+
+---
+
 ## [1.2.0] - 2026-07-02
 
 ### Thêm mới (Added)
