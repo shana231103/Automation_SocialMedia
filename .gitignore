@@ -218,4 +218,5 @@ logs/
 *.db-journal
 
 # Vector storage (local)
-.qdrant_storage/
+.qdrant_storage/
+.agents/
