@@ -11,6 +11,7 @@ class DbAccount(Base):
     platform = Column(String, nullable=False)
     status = Column(String, nullable=False, default="chưa đăng nhập")
     last_checked_at = Column(DateTime, nullable=True)
+    gemlogin_profile_name = Column(String, nullable=True)
 
 
 class DbLoginHistory(Base):

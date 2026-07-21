@@ -7,12 +7,14 @@ class AccountCreate(BaseModel):
     username: str = Field(..., min_length=1, description="Username/Email of the account")
     password: str = Field(..., min_length=1, description="Password of the account")
     platform: Platform = Field(..., description="Social media platform")
+    gemlogin_profile_name: Optional[str] = Field(None, description="Optional GemLogin profile name mapping")
 
 class AccountResponse(BaseModel):
     id: int
     username: str
     platform: Platform
     status: LoginStatus
+    gemlogin_profile_name: Optional[str] = None
     last_checked_at: Optional[datetime] = None
 
     class Config:

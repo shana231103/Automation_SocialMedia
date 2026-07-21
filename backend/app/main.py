@@ -15,13 +15,21 @@ from app.infrastructure.database.connection import engine
 from app.infrastructure.database.models import Base
 from app.presentation.api import router
 
+from sqlalchemy import text
+
 # Automatically create PostgreSQL tables if they don't exist
 try:
     print("Creating tables in PostgreSQL...")
     Base.metadata.create_all(bind=engine)
-    print("Tables created successfully.")
+    
+    # Run dynamic column migration to ensure gemlogin_profile_name exists
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS gemlogin_profile_name VARCHAR;"))
+        conn.commit()
+    
+    print("Tables created and migrated successfully.")
 except Exception as e:
-    print(f"Error creating database tables automatically: {e}")
+    print(f"Error creating or migrating database tables automatically: {e}")
     print("Please verify your PostgreSQL credentials and that the service is running.")
 
 app = FastAPI(

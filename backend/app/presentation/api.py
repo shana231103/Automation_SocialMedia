@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.infrastructure.database.connection import get_db
@@ -11,6 +11,7 @@ from app.application.interfaces import AutomationService
 from app.application.use_cases.manage_accounts import GetAccountsUseCase, CreateAccountUseCase, DeleteAccountUseCase
 from app.application.use_cases.run_login import RunLoginUseCase
 from app.application.use_cases.view_history import GetLoginHistoryUseCase, ClearLoginHistoryUseCase
+from app.application.use_cases.batch_run_login import BatchRunLoginUseCase
 from app.presentation.schemas import AccountCreate, AccountResponse, LoginHistoryResponse
 
 router = APIRouter(prefix="/api")
@@ -36,7 +37,8 @@ def create_account(account_in: AccountCreate, db: Session = Depends(get_db)):
     return use_case.execute(
         username=account_in.username,
         password=account_in.password,
-        platform=account_in.platform
+        platform=account_in.platform,
+        gemlogin_profile_name=account_in.gemlogin_profile_name
     )
 
 @router.delete("/accounts/{account_id}")
@@ -81,6 +83,36 @@ def run_login(
     def event_generator():
         # Iterate over usecase execution yielding SSE data
         for event in use_case.execute(account_id):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/batch-login")
+def batch_login(
+    account_ids: str = Query(..., description="Comma-separated list of account IDs to run"),
+    db: Session = Depends(get_db),
+    automation_service: AutomationService = Depends(get_automation_service)
+):
+    try:
+        id_list = [int(x.strip()) for x in account_ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Danh sách ID tài khoản không hợp lệ")
+
+    account_repo = SqlAlchemyAccountRepository(db)
+    history_repo = SqlAlchemyLoginHistoryRepository(db)
+    max_concurrent = int(os.getenv("MAX_CONCURRENT_LOGINS", "3"))
+
+    use_case = BatchRunLoginUseCase(
+        account_repo=account_repo,
+        history_repo=history_repo,
+        automation_service=automation_service,
+        max_concurrent=max_concurrent
+    )
+
+    async def event_generator():
+        # Iterate over usecase execution yielding SSE data
+        async for event in use_case.execute(id_list):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

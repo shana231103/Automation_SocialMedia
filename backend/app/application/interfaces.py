@@ -25,7 +25,8 @@ class AutomationService(ABC):
         username: str,
         password: str,
         platform: Platform,
-        profile_key: str
+        profile_key: str,
+        profile_name: str | None = None
     ) -> Generator[dict[str, Any], None, None]:
         """
         Runs the login automation.

@@ -11,7 +11,8 @@ def to_domain_account(db_acc: DbAccount) -> Account:
         password=db_acc.password,
         platform=Platform(db_acc.platform),
         status=LoginStatus(db_acc.status),
-        last_checked_at=db_acc.last_checked_at
+        last_checked_at=db_acc.last_checked_at,
+        gemlogin_profile_name=db_acc.gemlogin_profile_name
     )
 
 def to_domain_history(db_hist: DbLoginHistory) -> LoginHistory:
@@ -37,6 +38,10 @@ class SqlAlchemyAccountRepository(AccountRepository):
         db_accounts = self.session.query(DbAccount).order_by(DbAccount.id.desc()).all()
         return [to_domain_account(acc) for acc in db_accounts]
 
+    def get_by_ids(self, account_ids: List[int]) -> List[Account]:
+        db_accounts = self.session.query(DbAccount).filter(DbAccount.id.in_(account_ids)).all()
+        return [to_domain_account(acc) for acc in db_accounts]
+
     def save(self, account: Account) -> Account:
         if account.id is not None:
             # Update existing
@@ -47,6 +52,7 @@ class SqlAlchemyAccountRepository(AccountRepository):
                 db_acc.platform = account.platform.value
                 db_acc.status = account.status.value
                 db_acc.last_checked_at = account.last_checked_at
+                db_acc.gemlogin_profile_name = account.gemlogin_profile_name
         else:
             # Create new
             db_acc = DbAccount(
@@ -54,7 +60,8 @@ class SqlAlchemyAccountRepository(AccountRepository):
                 password=account.password,
                 platform=account.platform.value,
                 status=account.status.value,
-                last_checked_at=account.last_checked_at
+                last_checked_at=account.last_checked_at,
+                gemlogin_profile_name=account.gemlogin_profile_name
             )
             self.session.add(db_acc)
 

@@ -12,6 +12,10 @@ class AccountRepository(ABC):
         pass
 
     @abstractmethod
+    def get_by_ids(self, account_ids: List[int]) -> List[Account]:
+        pass
+
+    @abstractmethod
     def save(self, account: Account) -> Account:
         pass
 

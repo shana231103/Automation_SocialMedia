@@ -12,19 +12,19 @@ class BaseAutomationService(AutomationService):
     Base service implementing AutomationService interface to execute browser automation actions.
     Consolidates run flow execution, error handling, logging, and browser lifecycle wrapper setup.
     """
-    _browser_manager_factory: Callable[[str], BrowserContextManager]
+    _browser_manager_factory: Callable[[str, str | None], BrowserContextManager]
     _page_wrapper_class: Type[AutomationPage]
 
     def __init__(
         self,
-        browser_manager_factory: Callable[[str], BrowserContextManager],
+        browser_manager_factory: Callable[[str, str | None], BrowserContextManager],
         page_wrapper_class: Type[AutomationPage],
     ):
         self._browser_manager_factory = browser_manager_factory
         self._page_wrapper_class = page_wrapper_class
 
     def run_login(
-        self, username: str, password: str, platform: Platform, profile_key: str
+        self, username: str, password: str, platform: Platform, profile_key: str, profile_name: str | None = None
     ) -> Generator[dict[str, Any], None, None]:
         # Delegate to run_action for backward compatibility
         params = {
@@ -32,10 +32,10 @@ class BaseAutomationService(AutomationService):
             "password": password,
             "platform": platform
         }
-        yield from self.run_action("login", params, profile_key)
+        yield from self.run_action("login", params, profile_key, profile_name)
 
     def run_action(
-        self, action_name: str, params: dict[str, Any], profile_key: str
+        self, action_name: str, params: dict[str, Any], profile_key: str, profile_name: str | None = None
     ) -> Generator[dict[str, Any], None, None]:
         # Initialize execution logs
         execution_logs: list[str] = []
@@ -57,7 +57,7 @@ class BaseAutomationService(AutomationService):
             }
             return
 
-        browser_manager = self._browser_manager_factory(profile_key)
+        browser_manager = self._browser_manager_factory(profile_key, profile_name)
 
         try:
             with browser_manager as native_page:

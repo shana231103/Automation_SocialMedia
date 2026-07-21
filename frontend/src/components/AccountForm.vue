@@ -6,6 +6,7 @@ const emit = defineEmits(['save'])
 const username = ref('')
 const password = ref('')
 const platform = ref('facebook')
+const gemloginProfileName = ref('')
 const showPassword = ref(false)
 
 const submitForm = () => {
@@ -13,11 +14,13 @@ const submitForm = () => {
   emit('save', {
     username: username.value,
     password: password.value,
-    platform: platform.value
+    platform: platform.value,
+    gemlogin_profile_name: gemloginProfileName.value.trim() || null
   })
   // Clear sensitive fields after save event emission
   username.value = ''
   password.value = ''
+  gemloginProfileName.value = ''
 }
 </script>
 
@@ -109,6 +112,19 @@ const submitForm = () => {
             <span v-if="showPassword" class="text-xs">👁️</span>
             <span v-else class="text-xs">👁️‍🗨️</span>
           </button>
+        </div>
+      </div>
+
+      <!-- GemLogin Profile Name Input -->
+      <div>
+        <label class="block text-xs text-zinc-400 mb-1.5 font-medium">GemLogin Profile Name (Tùy chọn)</label>
+        <div class="relative">
+          <input
+            v-model="gemloginProfileName"
+            type="text"
+            placeholder="Mặc định: platform_id..."
+            class="w-full bg-zinc-950 border border-zinc-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30 rounded-xl px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-all"
+          />
         </div>
       </div>
 

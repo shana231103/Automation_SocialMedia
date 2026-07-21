@@ -22,7 +22,8 @@ class Account:
         password: str,
         platform: Platform,
         status: LoginStatus = LoginStatus.LOGGED_OUT,
-        last_checked_at: Optional[datetime] = None
+        last_checked_at: Optional[datetime] = None,
+        gemlogin_profile_name: Optional[str] = None
     ):
         self.id = id
         self.username = username
@@ -30,6 +31,7 @@ class Account:
         self.platform = platform
         self.status = status
         self.last_checked_at = last_checked_at
+        self.gemlogin_profile_name = gemlogin_profile_name
 
     def update_status(self, new_status: LoginStatus):
         self.status = new_status

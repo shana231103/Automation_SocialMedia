@@ -4,8 +4,10 @@ import Header from './components/Header.vue'
 import AccountForm from './components/AccountForm.vue'
 import AccountList from './components/AccountList.vue'
 import ConsoleTerminal from './components/ConsoleTerminal.vue'
+import BatchConsole from './components/BatchConsole.vue'
 import HistoryTable from './components/HistoryTable.vue'
 import LogsModal from './components/LogsModal.vue'
+import BatchSummary from './components/BatchSummary.vue'
 
 // API endpoints (proxied via Vite)
 const ACCOUNTS_API = '/api/accounts'
@@ -19,6 +21,15 @@ const activeAccountRunning = ref(null)
 const liveLogs = ref([])
 const selectedHistoryLogs = ref(null) // For the log detail modal
 const showLogsModal = ref(false)
+
+// Batch state
+const isBatchRunning = ref(false)
+const batchAccounts = ref([])
+const batchLogs = ref({})
+const batchStatuses = ref({})
+const batchProfiles = ref({})
+const batchSummary = ref(null)
+const showBatchSummary = ref(false)
 
 // Fetch all accounts
 const fetchAccounts = async () => {
@@ -134,6 +145,75 @@ const runLogin = (account) => {
   }
 }
 
+// Run batch login automation
+const runBatch = (selectedIds) => {
+  if (isRunning.value || isBatchRunning.value) return
+  
+  isBatchRunning.value = true
+  isRunning.value = true
+  batchAccounts.value = accounts.value.filter(a => selectedIds.includes(a.id))
+  batchSummary.value = null
+  
+  // Initialize batch states
+  batchLogs.value = {}
+  batchStatuses.value = {}
+  batchProfiles.value = {}
+  selectedIds.forEach(id => {
+    batchLogs.value[id] = [`[HỆ THỐNG] Khởi tạo tài khoản đăng nhập...`]
+    batchStatuses.value[id] = 'queued'
+    batchProfiles.value[id] = 'Đang chờ...'
+  })
+  
+  const idsParam = selectedIds.join(',')
+  const eventSource = new EventSource(`/api/batch-login?account_ids=${idsParam}`)
+  
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      const accountId = data.account_id
+      
+      if (data.type === 'task_queued') {
+        batchStatuses.value[accountId] = 'queued'
+        batchLogs.value[accountId].push(`[HỆ THỐNG] Đang trong hàng đợi (giới hạn tối đa 3 tài khoản song song)...`)
+      } else if (data.type === 'task_started') {
+        batchStatuses.value[accountId] = 'running'
+        batchProfiles.value[accountId] = data.assigned_profile || 'Đang chạy'
+        batchLogs.value[accountId].push(`[HỆ THỐNG] Đã lấy slot chạy, bắt đầu khởi tạo profile GemLogin "${data.assigned_profile || 'Đang chạy'}"...`)
+      } else if (data.type === 'task_completed') {
+        batchLogs.value[accountId].push(`[HỆ THỐNG] Kết thúc tiến trình chạy cho tài khoản này.`)
+      } else if (data.type === 'log') {
+        batchLogs.value[accountId].push(`[INFO] ${data.message}`)
+      } else if (data.type === 'result') {
+        batchStatuses.value[accountId] = data.status
+        batchLogs.value[accountId].push(`[KẾT QUẢ] Trạng thái đăng nhập được xác định: ${data.status.toUpperCase()}`)
+      } else if (data.type === 'error') {
+        batchStatuses.value[accountId] = 'error'
+        batchLogs.value[accountId].push(`[LỖI] ${data.message}`)
+      } else if (data.type === 'batch_summary') {
+        batchSummary.value = data
+        showBatchSummary.value = true
+        eventSource.close()
+        isRunning.value = false
+        isBatchRunning.value = false
+        fetchAccounts()
+        fetchHistory()
+      }
+    } catch (e) {
+      console.error('Error parsing Batch SSE event:', e)
+    }
+  }
+  
+  eventSource.onerror = (err) => {
+    console.error('Batch SSE Error:', err)
+    eventSource.close()
+    isRunning.value = false
+    isBatchRunning.value = false
+    alert('Lỗi kết nối luồng dữ liệu hàng loạt SSE.')
+    fetchAccounts()
+    fetchHistory()
+  }
+}
+
 // Clear history log
 const clearHistory = async () => {
   if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử chạy?')) return
@@ -180,13 +260,23 @@ onMounted(() => {
           :is-running="isRunning"
           :active-account-running="activeAccountRunning"
           @run="runLogin"
+          @run-batch="runBatch"
           @delete="deleteAccount"
           @refresh="fetchAccounts"
         />
       </div>
 
       <!-- Right Column: Live Logs Console -->
+      <BatchConsole
+        v-if="isBatchRunning"
+        :batch-accounts="batchAccounts"
+        :batch-logs="batchLogs"
+        :batch-statuses="batchStatuses"
+        :batch-profiles="batchProfiles"
+        :is-batch-running="isBatchRunning"
+      />
       <ConsoleTerminal
+        v-else
         :live-logs="liveLogs"
         :is-running="isRunning"
       />
@@ -207,6 +297,13 @@ onMounted(() => {
       v-if="showLogsModal"
       :item="selectedHistoryLogs"
       @close="showLogsModal = false"
+    />
+
+    <!-- Modal: View Batch Summary -->
+    <BatchSummary
+      v-if="showBatchSummary"
+      :summary="batchSummary"
+      @close="showBatchSummary = false"
     />
   </div>
 </template>

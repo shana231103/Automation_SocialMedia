@@ -1,4 +1,4 @@
-from typing import Generator, Dict, Any
+from typing import Generator, Dict, Any, Optional
 from app.domain.models import LoginHistory, LoginStatus
 from app.domain.repositories import AccountRepository, LoginHistoryRepository
 from app.application.interfaces import AutomationService
@@ -14,7 +14,7 @@ class RunLoginUseCase:
         self.history_repo = history_repo
         self.automation_service = automation_service
 
-    def execute(self, account_id: int) -> Generator[Dict[str, Any], None, None]:
+    def execute(self, account_id: int, profile_name: Optional[str] = None) -> Generator[Dict[str, Any], None, None]:
         account = self.account_repo.get_by_id(account_id)
         if not account:
             yield {"type": "error", "message": f"Tài khoản ID {account_id} không tồn tại."}
@@ -28,7 +28,14 @@ class RunLoginUseCase:
         try:
             # Stream logs from automation service
             profile_key = f"{account.platform.value}_{account.id}"
-            for progress in self.automation_service.run_login(account.username, account.password, account.platform, profile_key):
+            target_profile_name = profile_name or account.gemlogin_profile_name or profile_key
+            for progress in self.automation_service.run_login(
+                account.username,
+                account.password,
+                account.platform,
+                profile_key,
+                target_profile_name
+            ):
                 if progress["type"] == "log":
                     yield progress
                 elif progress["type"] == "result":
