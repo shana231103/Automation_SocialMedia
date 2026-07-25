@@ -38,7 +38,7 @@ class TestActionRegistry(unittest.TestCase):
             mock_browser_manager.__enter__.return_value = mock_native_page
             mock_browser_manager.get_new_logs.return_value = ["Setup log 1"]
 
-            browser_factory = lambda key: mock_browser_manager
+            browser_factory = lambda key, name=None: mock_browser_manager
 
             # Initialize service with mock browser manager factory
             service = DrissionPageAutomationService(browser_manager_factory=browser_factory)
@@ -68,7 +68,7 @@ class TestActionRegistry(unittest.TestCase):
     def test_run_unregistered_action(self):
         # Calling an action that is not in the registry should yield failure logs gracefully
         mock_browser_manager = MagicMock()
-        browser_factory = lambda key: mock_browser_manager
+        browser_factory = lambda key, name=None: mock_browser_manager
         
         service = DrissionPageAutomationService(browser_manager_factory=browser_factory)
         

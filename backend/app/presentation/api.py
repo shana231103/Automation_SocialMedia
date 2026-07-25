@@ -4,14 +4,13 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from app.infrastructure.database.connection import get_db
+from app.infrastructure.database.connection import get_db, SessionLocal
 from app.infrastructure.database.repositories import SqlAlchemyAccountRepository, SqlAlchemyLoginHistoryRepository
 from app.infrastructure.automation.drission_page import DrissionPageAutomationService
 from app.application.interfaces import AutomationService
 from app.application.use_cases.manage_accounts import GetAccountsUseCase, CreateAccountUseCase, DeleteAccountUseCase
 from app.application.use_cases.run_login import RunLoginUseCase
 from app.application.use_cases.view_history import GetLoginHistoryUseCase, ClearLoginHistoryUseCase
-from app.application.use_cases.batch_run_login import BatchRunLoginUseCase
 from app.presentation.schemas import AccountCreate, AccountResponse, LoginHistoryResponse
 
 router = APIRouter(prefix="/api")
@@ -103,16 +102,17 @@ def batch_login(
     history_repo = SqlAlchemyLoginHistoryRepository(db)
     max_concurrent = int(os.getenv("MAX_CONCURRENT_LOGINS", "3"))
 
-    use_case = BatchRunLoginUseCase(
+    use_case = RunLoginUseCase(
         account_repo=account_repo,
         history_repo=history_repo,
         automation_service=automation_service,
-        max_concurrent=max_concurrent
+        max_concurrent=max_concurrent,
+        session_factory=SessionLocal
     )
 
     async def event_generator():
         # Iterate over usecase execution yielding SSE data
-        async for event in use_case.execute(id_list):
+        async for event in use_case.execute_batch(id_list):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
