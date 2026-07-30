@@ -53,6 +53,9 @@ class MockPage(AutomationPage):
                 return self.elements[selector]
         return None
 
+    def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
+        return self.find(selector, timeout=timeout)
+
     @property
     def url(self) -> str:
         return self._url

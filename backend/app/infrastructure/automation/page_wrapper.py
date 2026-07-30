@@ -40,7 +40,6 @@ class AutomationElement(ABC):
         Raises:
             RuntimeError: if the element is stale or the field is not writable.
         """
-
     @abstractmethod
     def click(self, by_js: bool = False) -> None:
         """
@@ -151,4 +150,19 @@ class AutomationPage(ABC):
         Always safe to read; returns an empty string if no page has loaded yet.
         DrissionPage: page.html
         Playwright:   page.content()
+        """
+
+    @abstractmethod
+    def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
+        """
+        Search for an element using canonical selector first. If not found and AI Fallback
+        is enabled, capture page screenshot + DOM snippet and query Vision LLM for element selector.
+
+        Args:
+            selector: Initial canonical selector to attempt.
+            hint_text: Semantic description of target element (e.g. 'Email input field').
+            timeout: Initial search timeout in seconds.
+
+        Returns:
+            AutomationElement if found via static selector or AI prediction, else None.
         """

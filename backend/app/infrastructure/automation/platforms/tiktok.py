@@ -18,6 +18,15 @@ def login_tiktok(page: AutomationPage, username: str, password: str, log_func) -
     yield log_func("Đang nhập tài khoản email/username TikTok...")
     user_input = page.find("css:input[name='username']", timeout=5)
     pass_input = page.find("css:input[type='password']", timeout=5)
+
+    if not user_input:
+        user_input = page.find_with_ai_fallback(
+            "css:input[name='username']", "TikTok email or username input", timeout=2
+        )
+    if not pass_input:
+        pass_input = page.find_with_ai_fallback(
+            "css:input[type='password']", "TikTok password input", timeout=2
+        )
     
     if user_input and pass_input:
         user_input.input(username)

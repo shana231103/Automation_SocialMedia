@@ -20,6 +20,11 @@ def login_youtube(page: AutomationPage, username: str, password: str, log_func) 
     if not email_input:
         email_input = page.find("#identifierId", timeout=2)
         
+    if not email_input:
+        email_input = page.find_with_ai_fallback(
+            "css:input[type='email']", "Google email input", timeout=2
+        )
+
     if email_input:
         email_input.input(username)
         time.sleep(1)
@@ -46,6 +51,11 @@ def login_youtube(page: AutomationPage, username: str, password: str, log_func) 
                 break
             time.sleep(0.5)
             
+        if not pass_input and not account_error:
+            pass_input = page.find_with_ai_fallback(
+                "css:input[type='password']", "Google password input", timeout=2
+            )
+
         if account_error:
             yield log_func("Sai email hoặc tài khoản Google không tồn tại.")
             return LoginStatus.LOGGED_OUT

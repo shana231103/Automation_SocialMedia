@@ -56,7 +56,7 @@ const fetchHistory = async () => {
 }
 
 // Save account
-const saveAccount = async ({ username, password, platform }) => {
+const saveAccount = async ({ username, password, platform, gemlogin_profile_name }) => {
   try {
     const res = await fetch(ACCOUNTS_API, {
       method: 'POST',
@@ -66,7 +66,8 @@ const saveAccount = async ({ username, password, platform }) => {
       body: JSON.stringify({
         username,
         password,
-        platform
+        platform,
+        gemlogin_profile_name
       })
     })
     

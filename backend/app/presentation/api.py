@@ -98,9 +98,25 @@ def batch_login(
     except ValueError:
         raise HTTPException(status_code=400, detail="Danh sách ID tài khoản không hợp lệ")
 
+    if not id_list or any(account_id <= 0 for account_id in id_list):
+        raise HTTPException(status_code=400, detail="Invalid account ID list")
+
+    # Preserve request order while ensuring an account runs at most once per batch.
+    id_list = list(dict.fromkeys(id_list))
+
+    try:
+        max_concurrent = int(os.getenv("MAX_CONCURRENT_LOGINS", "3"))
+        max_batch_size = int(os.getenv("MAX_BATCH_SIZE", "100"))
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Invalid batch configuration")
+
+    if max_concurrent < 1 or max_batch_size < 1:
+        raise HTTPException(status_code=500, detail="Batch configuration values must be positive")
+    if len(id_list) > max_batch_size:
+        raise HTTPException(status_code=400, detail=f"Batch exceeds the maximum of {max_batch_size} accounts")
+
     account_repo = SqlAlchemyAccountRepository(db)
     history_repo = SqlAlchemyLoginHistoryRepository(db)
-    max_concurrent = int(os.getenv("MAX_CONCURRENT_LOGINS", "3"))
 
     use_case = RunLoginUseCase(
         account_repo=account_repo,
@@ -116,3 +132,13 @@ def batch_login(
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/ai/status")
+def get_ai_status():
+    from app.infrastructure.ai.vision_client import MultimodalVisionClient
+    client = MultimodalVisionClient()
+    return {
+        "enabled": client.is_enabled(),
+        "provider": client.provider
+    }

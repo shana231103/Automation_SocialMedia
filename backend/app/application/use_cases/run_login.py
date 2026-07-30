@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+import threading
 from typing import Generator, Dict, Any, Optional, List, AsyncGenerator
 
 from app.domain.models import LoginHistory, LoginStatus
@@ -30,13 +31,17 @@ class RunLoginUseCase:
         self.history_repo = history_repo
         self.automation_service = automation_service
         self.max_concurrent = max_concurrent
-        if session_factory is None:
-            from app.infrastructure.database.connection import SessionLocal
-            self.session_factory = SessionLocal
-        else:
-            self.session_factory = session_factory
+        # A session factory is needed only for concurrent batch execution.
+        # Resolve the infrastructure dependency lazily so single-login tests
+        # remain independent of SQLAlchemy.
+        self.session_factory = session_factory
 
-    def execute(self, account_id: int, profile_name: Optional[str] = None) -> Generator[Dict[str, Any], None, None]:
+    def execute(
+        self,
+        account_id: int,
+        profile_name: Optional[str] = None,
+        cancellation_event: Optional[threading.Event] = None,
+    ) -> Generator[Dict[str, Any], None, None]:
         """
         Execute login automation for a single account.
         
@@ -59,13 +64,26 @@ class RunLoginUseCase:
             profile_key = f"{account.platform.value}_{account.id}"
             # Default to configured profile name or default slot profile "1"
             target_profile_name = profile_name or account.gemlogin_profile_name or "1"
-            for progress in self.automation_service.run_login(
+            automation_run = iter(self.automation_service.run_login(
                 account.username,
                 account.password,
                 account.platform,
                 profile_key,
                 target_profile_name
-            ):
+            ))
+            while True:
+                if cancellation_event and cancellation_event.is_set():
+                    close = getattr(automation_run, "close", None)
+                    if callable(close):
+                        close()
+                    yield {"type": "cancelled", "message": "Automation was cancelled because the client disconnected."}
+                    return
+
+                try:
+                    progress = next(automation_run)
+                except StopIteration:
+                    break
+
                 if progress["type"] == "log":
                     yield progress
                 elif progress["type"] == "result":
@@ -106,8 +124,12 @@ class RunLoginUseCase:
         Args:
             account_ids: List of target account database IDs.
         """
+        if self.max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_account_ids = list(dict.fromkeys(account_ids))
         valid_accounts = []
-        for account_id in account_ids:
+        for account_id in unique_account_ids:
             account = self.account_repo.get_by_id(account_id)
             if not account:
                 yield {
@@ -123,6 +145,10 @@ class RunLoginUseCase:
 
         event_queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
+        session_factory = self.session_factory
+        if session_factory is None:
+            from app.infrastructure.database.connection import SessionLocal
+            session_factory = SessionLocal
 
         # Slot pool of profile names corresponding to slots: "1", "2", ..., "max_concurrent"
         profile_pool = asyncio.Queue()
@@ -131,11 +157,15 @@ class RunLoginUseCase:
 
         assigned_profiles = {}
         results = {}
+        cancellation_events: dict[int, threading.Event] = {}
 
         async def run_worker(account_id: int):
-            profile_name = await profile_pool.get()
-            assigned_profiles[account_id] = profile_name
+            profile_name: Optional[str] = None
+            cancellation_event = threading.Event()
+            cancellation_events[account_id] = cancellation_event
             try:
+                profile_name = await profile_pool.get()
+                assigned_profiles[account_id] = profile_name
                 await event_queue.put({
                     "type": "task_started",
                     "account_id": account_id,
@@ -145,7 +175,7 @@ class RunLoginUseCase:
 
                 def thread_worker():
                     # Create thread-local database session to avoid thread-safety violations in SQLAlchemy
-                    session = self.session_factory()
+                    session = session_factory()
                     try:
                         from app.infrastructure.database.repositories import (
                             SqlAlchemyAccountRepository,
@@ -159,7 +189,11 @@ class RunLoginUseCase:
                             history_repo=thread_history_repo,
                             automation_service=self.automation_service
                         )
-                        for progress in single_use_case.execute(account_id, profile_name=profile_name):
+                        for progress in single_use_case.execute(
+                            account_id,
+                            profile_name=profile_name,
+                            cancellation_event=cancellation_event,
+                        ):
                             progress_with_id = {**progress, "account_id": account_id}
                             loop.call_soon_threadsafe(event_queue.put_nowait, progress_with_id)
                     except Exception as e:
@@ -179,9 +213,18 @@ class RunLoginUseCase:
                     "account_id": account_id,
                     "message": "Hoàn tất."
                 })
+            except asyncio.CancelledError:
+                cancellation_event.set()
+                event_queue.put_nowait({
+                    "type": "task_cancelled",
+                    "account_id": account_id,
+                    "message": "Client disconnected; stopping automation safely."
+                })
+                raise
             finally:
-                profile_pool.put_nowait(profile_name)
-                profile_pool.task_done()
+                if profile_name is not None:
+                    profile_pool.put_nowait(profile_name)
+                    profile_pool.task_done()
 
         # Yield initially that all accounts are queued
         for account in valid_accounts:
@@ -199,26 +242,44 @@ class RunLoginUseCase:
             await asyncio.gather(*workers, return_exceptions=True)
             await event_queue.put(None)
 
-        asyncio.create_task(wait_for_all())
+        completion_task = asyncio.create_task(wait_for_all())
+        completed_normally = False
+        try:
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    break
 
-        while True:
-            event = await event_queue.get()
-            if event is None:
-                break
+                if event.get("type") == "result":
+                    results[event["account_id"]] = {
+                        "status": event.get("status"),
+                        "logs": event.get("logs")
+                    }
 
-            if event.get("type") == "result":
-                results[event["account_id"]] = {
-                    "status": event.get("status"),
-                    "logs": event.get("logs")
-                }
+                yield event
+            completed_normally = True
+        finally:
+            if not completed_normally:
+                for cancellation_event in cancellation_events.values():
+                    cancellation_event.set()
+                for worker in workers:
+                    if not worker.done():
+                        worker.cancel()
+                if not completion_task.done():
+                    completion_task.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
+                await asyncio.gather(completion_task, return_exceptions=True)
 
-            yield event
-
+        success_count = sum(
+            1
+            for result in results.values()
+            if result["status"] == LoginStatus.LOGGED_IN or result["status"] == LoginStatus.LOGGED_IN.value
+        )
         summary = {
             "type": "batch_summary",
             "total": len(valid_accounts),
-            "success_count": sum(1 for r in results.values() if r["status"] == LoginStatus.LOGGED_IN),
-            "error_count": sum(1 for r in results.values() if r["status"] != LoginStatus.LOGGED_IN),
+            "success_count": success_count,
+            "error_count": len(valid_accounts) - success_count,
             "details": {
                 aid: {
                     "username": next((a.username for a in valid_accounts if a.id == aid), "Unknown"),

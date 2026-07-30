@@ -24,6 +24,15 @@ def login_facebook(page: AutomationPage, username: str, password: str, log_func)
         email_input = page.find("#email", timeout=2)
         pass_input = page.find("#pass", timeout=2)
 
+    if not email_input:
+        email_input = page.find_with_ai_fallback(
+            "css:input[name='email']", "Facebook email or phone input", timeout=2
+        )
+    if not pass_input:
+        pass_input = page.find_with_ai_fallback(
+            "css:input[name='pass']", "Facebook password input", timeout=2
+        )
+
     if email_input and pass_input:
         email_input.input(username)
         time.sleep(0.5)

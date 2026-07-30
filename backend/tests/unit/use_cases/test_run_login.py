@@ -3,6 +3,7 @@
 
 import unittest
 import asyncio
+import threading
 from unittest.mock import MagicMock
 from app.domain.models import Account, Platform, LoginStatus
 from app.application.use_cases.run_login import RunLoginUseCase
@@ -77,6 +78,36 @@ class TestRunLoginUseCase(unittest.TestCase):
             "facebook_1",
             "MyGemProfile_A"
         )
+
+    def test_single_run_stops_when_cancellation_is_requested(self):
+        cancellation_event = threading.Event()
+        cancellation_event.set()
+        use_case = RunLoginUseCase(
+            account_repo=self.mock_account_repo,
+            history_repo=self.mock_history_repo,
+            automation_service=self.mock_automation_service,
+        )
+
+        events = list(use_case.execute(1, cancellation_event=cancellation_event))
+
+        self.assertEqual(events[-1]["type"], "cancelled")
+        self.mock_account_repo.save.assert_not_called()
+        self.mock_history_repo.save.assert_not_called()
+
+    def test_batch_rejects_non_positive_concurrency(self):
+        use_case = RunLoginUseCase(
+            account_repo=self.mock_account_repo,
+            history_repo=self.mock_history_repo,
+            automation_service=self.mock_automation_service,
+            max_concurrent=0,
+        )
+
+        async def run_test():
+            async for _ in use_case.execute_batch([1]):
+                pass
+
+        with self.assertRaisesRegex(ValueError, "max_concurrent"):
+            asyncio.run(run_test())
 
     def test_batch_run_uses_isolated_session_factory_and_slot_pool(self):
         mock_sessions = []

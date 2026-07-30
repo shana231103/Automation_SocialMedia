@@ -30,6 +30,11 @@ def login_twitter(page: AutomationPage, username: str, password: str, log_func) 
             break
         time.sleep(0.5)
         
+    if not username_input:
+        username_input = page.find_with_ai_fallback(
+            "css:input[name='text']", "X (Twitter) username or email input", timeout=2
+        )
+
     if username_input:
         yield log_func("Đang nhập tên tài khoản...")
         username_input.input(username)
@@ -63,6 +68,11 @@ def login_twitter(page: AutomationPage, username: str, password: str, log_func) 
                 break
             time.sleep(0.5)
         
+        if not pass_input and not confirmation_input:
+            pass_input = page.find_with_ai_fallback(
+                "css:input[name='password']", "X (Twitter) password input", timeout=2
+            )
+
         if confirmation_input:
             yield log_func("X yêu cầu xác minh email/sđt do đăng nhập bất thường.")
             return LoginStatus.CHECKPOINT

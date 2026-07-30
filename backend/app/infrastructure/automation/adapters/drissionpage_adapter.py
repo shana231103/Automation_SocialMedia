@@ -131,3 +131,35 @@ class DrissionPageWrapper(AutomationPage):
             return self._page.html or ""
         except Exception:
             return ""
+
+    def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> DrissionPageElement | None:
+        element = self.find(selector, timeout=timeout)
+        if element is not None:
+            return element
+
+        from app.infrastructure.ai.vision_client import MultimodalVisionClient
+        from app.infrastructure.ai.dom_parser import DOMParser
+        import base64
+
+        vision_client = MultimodalVisionClient()
+        if not vision_client.is_enabled():
+            return None
+
+        try:
+            # Capture screenshot as bytes
+            img_bytes = self._page.get_screenshot(as_bytes=True)
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8") if isinstance(img_bytes, bytes) else ""
+
+            # Extract DOM snippet
+            dom_snippet = DOMParser.extract_interactable_snippet(self.html)
+
+            # Query Vision LLM for prediction
+            prediction = vision_client.predict_element(img_b64, dom_snippet, hint_text)
+            if prediction.selector:
+                predicted_el = self.find(prediction.selector, timeout=2.0)
+                if predicted_el:
+                    return predicted_el
+        except Exception:
+            pass
+
+        return None
