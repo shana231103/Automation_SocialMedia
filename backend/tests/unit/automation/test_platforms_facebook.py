@@ -100,7 +100,7 @@ class TestFacebookLoginScript(unittest.TestCase):
             result = stop.value
             
         self.assertEqual(result, LoginStatus.LOGGED_IN)
-        self.assertIn("Đã phát hiện phiên đăng nhập sẵn có.", self.logs)
+        self.assertIn("An existing Facebook session was detected.", self.logs)
 
     def test_successful_login_flow(self):
         # Input elements present
@@ -153,7 +153,7 @@ class TestFacebookLoginScript(unittest.TestCase):
         self.assertEqual(email_el.input_history, ["test_user"])
         self.assertEqual(pass_el.input_history, ["test_pass"])
         self.assertEqual(login_btn.clicks, 1)
-        self.assertIn("Đăng nhập thành công vào trang chủ.", self.logs)
+        self.assertIn("Facebook login succeeded.", self.logs)
 
 
 

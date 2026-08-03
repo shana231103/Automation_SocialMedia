@@ -1,24 +1,58 @@
-# File: backend/app/infrastructure/automation/platforms/tiktok.py
 """Driver-agnostic TikTok login automation script."""
 
-import time
-from typing import Generator, Dict, Any
+from __future__ import annotations
+
+import threading
+from typing import Any, Callable, Dict, Generator
+
 from app.domain.models import LoginStatus
 from app.infrastructure.automation.page_wrapper import AutomationPage
+from app.infrastructure.automation.platforms._helpers import wait_or_cancel
 
-def login_tiktok(page: AutomationPage, username: str, password: str, log_func) -> Generator[Dict[str, Any], None, LoginStatus]:
-    yield log_func("Đang truy cập trang đăng nhập TikTok...")
+
+def _is_tiktok_authenticated(page: AutomationPage) -> bool:
+    return bool(
+        page.find("css:[data-e2e='profile-icon']", timeout=0.1)
+        or page.find("css:[data-e2e='profile-avatar']", timeout=0.1)
+    )
+
+
+def _requires_tiktok_checkpoint(page: AutomationPage, url: str) -> bool:
+    lowered_url = url.lower()
+    return bool(
+        "captcha" in lowered_url
+        or "challenge" in lowered_url
+        or page.find("css:[id='captcha-wrapper']", timeout=0.1)
+        or page.find("css:.captcha-slider", timeout=0.1)
+        or page.find("css:.captcha_verify_container", timeout=0.1)
+    )
+
+
+def _is_tiktok_dead(page: AutomationPage, url: str) -> bool:
+    lowered_url = url.lower()
+    return bool(
+        "account-suspended" in lowered_url
+        or "account-disabled" in lowered_url
+        or page.find("text:Your account has been suspended", timeout=0.1)
+        or page.find("text:Your account has been permanently banned", timeout=0.1)
+    )
+
+
+def login_tiktok(
+    page: AutomationPage,
+    username: str,
+    password: str,
+    log_func: Callable[[str], Dict[str, Any]],
+    cancellation_event: threading.Event | None = None,
+) -> Generator[Dict[str, Any], None, LoginStatus]:
+    yield log_func("Opening TikTok login...")
     page.goto("https://www.tiktok.com/login/phone-or-email/email")
-    
-    # Check if already logged in
-    if "tiktok.com" in page.url and (page.find("css:[data-e2e='profile-icon']", timeout=2) or page.find("css:[data-e2e='profile-avatar']", timeout=2)):
-        yield log_func("Đã phát hiện phiên đăng nhập TikTok sẵn có.")
+    if _is_tiktok_authenticated(page):
+        yield log_func("An existing TikTok session was detected.")
         return LoginStatus.LOGGED_IN
-        
-    yield log_func("Đang nhập tài khoản email/username TikTok...")
+
     user_input = page.find("css:input[name='username']", timeout=5)
     pass_input = page.find("css:input[type='password']", timeout=5)
-
     if not user_input:
         user_input = page.find_with_ai_fallback(
             "css:input[name='username']", "TikTok email or username input", timeout=2
@@ -27,72 +61,54 @@ def login_tiktok(page: AutomationPage, username: str, password: str, log_func) -
         pass_input = page.find_with_ai_fallback(
             "css:input[type='password']", "TikTok password input", timeout=2
         )
-    
-    if user_input and pass_input:
-        user_input.input(username)
-        time.sleep(0.5)
-        pass_input.input(password)
-        time.sleep(0.5)
-        
-        yield log_func("Click đăng nhập...")
-        submit_btn = page.find("css:button[type='submit']", timeout=2)
-        if submit_btn:
-            submit_btn.click()
-        else:
-            pass_input.press("Enter")
-            
-        yield log_func("Đang chờ TikTok xử lý và hiển thị CAPTCHA nếu có (chờ động)...")
-        
-        # Polling for captcha or login success for up to 8s
-        captcha_detected = False
-        for _ in range(16): # 16 * 0.5s = 8s
-            time.sleep(0.5)
-            # Check if captcha is visible
-            if page.find("css:[id='captcha-wrapper']", timeout=0.1) or page.find("css:.captcha-slider", timeout=0.1) or page.find("css:.captcha_verify_container", timeout=0.1):
-                captcha_detected = True
-                break
-            # Check if logged in early
-            if page.find("css:[data-e2e='profile-icon']", timeout=0.1) or page.find("css:[data-e2e='profile-avatar']", timeout=0.1) or "foryou" in page.url:
-                break
-        
-        if captcha_detected:
-            yield log_func("Cảnh báo: Phát hiện CAPTCHA của TikTok. Bạn cần kéo CAPTCHA bằng tay trên màn hình trình duyệt (chờ 15 giây)...")
-            # Sleep 15s to let user solve it manually (as this is headed browser mode)
-            time.sleep(15)
-            
-        # Dynamic polling for final status for another 5s
-        final_status = LoginStatus.LOGGED_OUT
-        for _ in range(10): # 10 * 0.5s = 5s
-            url = page.url
-            captcha_still_exists = page.find("css:[id='captcha-wrapper']", timeout=0.1) or page.find("css:.captcha-slider", timeout=0.1)
-            
-            if captcha_still_exists:
-                final_status = LoginStatus.CHECKPOINT
-            elif page.find("css:[data-e2e='profile-icon']", timeout=0.1) or page.find("css:[data-e2e='profile-avatar']", timeout=0.1) or "foryou" in url:
-                yield log_func("Đăng nhập TikTok thành công.")
-                final_status = LoginStatus.LOGGED_IN
-                break
-            elif "locked" in page.html.lower() or "suspension" in page.html.lower():
-                yield log_func("Tài khoản bị khóa hoặc vô hiệu hóa.")
-                final_status = LoginStatus.DEAD
-                break
-            time.sleep(0.5)
-        else:
-            # Check final states after timeout
-            url = page.url
-            captcha_still_exists = page.find("css:[id='captcha-wrapper']", timeout=1) or page.find("css:.captcha-slider", timeout=1)
-            if captcha_still_exists:
-                yield log_func("Không giải được CAPTCHA, chặn đăng nhập.")
-                final_status = LoginStatus.CHECKPOINT
-            elif page.find("css:[data-e2e='profile-icon']", timeout=1) or page.find("css:[data-e2e='profile-avatar']", timeout=1) or "foryou" in url:
-                final_status = LoginStatus.LOGGED_IN
-            elif "locked" in page.html.lower() or "suspension" in page.html.lower():
-                final_status = LoginStatus.DEAD
-            else:
-                yield log_func("Không thấy báo thành công, giả định đăng nhập thất bại.")
-                final_status = LoginStatus.LOGGED_OUT
-                
-        return final_status
-    else:
-        yield log_func("Không tìm thấy trường nhập tài khoản/mật khẩu TikTok.")
+    if not user_input or not pass_input:
+        yield log_func("TikTok credential inputs were not found.")
         return LoginStatus.LOGGED_OUT
+
+    user_input.input(username)
+    if wait_or_cancel(0.5, cancellation_event):
+        yield log_func("TikTok login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    pass_input.input(password)
+    if wait_or_cancel(0.5, cancellation_event):
+        yield log_func("TikTok login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+
+    submit_btn = page.find("css:button[type='submit']", timeout=2)
+    if submit_btn:
+        submit_btn.click()
+    else:
+        pass_input.press("Enter")
+    yield log_func("Waiting for TikTok to respond; solve any CAPTCHA manually if shown.")
+
+    for _ in range(16):
+        if wait_or_cancel(0.5, cancellation_event):
+            yield log_func("TikTok login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+        if _requires_tiktok_checkpoint(page, page.url):
+            yield log_func("TikTok requires CAPTCHA or a security verification.")
+            if wait_or_cancel(15, cancellation_event):
+                yield log_func("TikTok login was cancelled.")
+                return LoginStatus.LOGGED_OUT
+            break
+        if _is_tiktok_authenticated(page):
+            yield log_func("TikTok login succeeded.")
+            return LoginStatus.LOGGED_IN
+
+    for _ in range(10):
+        if wait_or_cancel(0.5, cancellation_event):
+            yield log_func("TikTok login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+        url = page.url
+        if _is_tiktok_authenticated(page):
+            yield log_func("TikTok login succeeded.")
+            return LoginStatus.LOGGED_IN
+        if _is_tiktok_dead(page, url):
+            yield log_func("TikTok reports that the account is suspended or banned.")
+            return LoginStatus.DEAD
+        if _requires_tiktok_checkpoint(page, url):
+            yield log_func("TikTok CAPTCHA or verification is still pending.")
+            return LoginStatus.CHECKPOINT
+
+    yield log_func("TikTok login did not reach a conclusive state before the timeout.")
+    return LoginStatus.LOGGED_OUT

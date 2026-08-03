@@ -64,12 +64,16 @@ class RunLoginUseCase:
             profile_key = f"{account.platform.value}_{account.id}"
             # Default to configured profile name or default slot profile "1"
             target_profile_name = profile_name or account.gemlogin_profile_name or "1"
+            run_kwargs = {}
+            if cancellation_event is not None:
+                run_kwargs["cancellation_event"] = cancellation_event
             automation_run = iter(self.automation_service.run_login(
                 account.username,
                 account.password,
                 account.platform,
                 profile_key,
-                target_profile_name
+                target_profile_name,
+                **run_kwargs,
             ))
             while True:
                 if cancellation_event and cancellation_event.is_set():

@@ -27,6 +27,7 @@ class LoginAction(AutomationAction):
         username = params.get("username")
         password = params.get("password")
         platform = params.get("platform")
+        cancellation_event = params.get("cancellation_event")
 
         if not username or not password or not platform:
             yield log_func("Thiếu thông tin đăng nhập (username, password hoặc platform).")
@@ -34,13 +35,13 @@ class LoginAction(AutomationAction):
 
         # Resolve correct platform login script
         if platform == Platform.FACEBOOK:
-            status = yield from login_facebook(page, username, password, log_func)
+            status = yield from login_facebook(page, username, password, log_func, cancellation_event)
         elif platform == Platform.YOUTUBE:
-            status = yield from login_youtube(page, username, password, log_func)
+            status = yield from login_youtube(page, username, password, log_func, cancellation_event)
         elif platform == Platform.TIKTOK:
-            status = yield from login_tiktok(page, username, password, log_func)
+            status = yield from login_tiktok(page, username, password, log_func, cancellation_event)
         elif platform == Platform.TWITTER:
-            status = yield from login_twitter(page, username, password, log_func)
+            status = yield from login_twitter(page, username, password, log_func, cancellation_event)
         else:
             yield log_func(f"Nền tảng {platform} chưa được hỗ trợ.")
             status = LoginStatus.LOGGED_OUT

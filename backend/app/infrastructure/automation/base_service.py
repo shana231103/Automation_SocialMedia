@@ -1,4 +1,5 @@
 import time
+import threading
 import traceback
 from typing import Generator, Any, Callable, Type
 from app.domain.models import Platform, LoginStatus
@@ -24,13 +25,20 @@ class BaseAutomationService(AutomationService):
         self._page_wrapper_class = page_wrapper_class
 
     def run_login(
-        self, username: str, password: str, platform: Platform, profile_key: str, profile_name: str | None = None
+        self,
+        username: str,
+        password: str,
+        platform: Platform,
+        profile_key: str,
+        profile_name: str | None = None,
+        cancellation_event: threading.Event | None = None,
     ) -> Generator[dict[str, Any], None, None]:
         # Delegate to run_action for backward compatibility
         params = {
             "username": username,
             "password": password,
-            "platform": platform
+            "platform": platform,
+            "cancellation_event": cancellation_event
         }
         yield from self.run_action("login", params, profile_key, profile_name)
 

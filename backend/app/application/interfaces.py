@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import threading
 from typing import Generator, Any
 from app.domain.models import Platform
 
@@ -26,7 +27,8 @@ class AutomationService(ABC):
         password: str,
         platform: Platform,
         profile_key: str,
-        profile_name: str | None = None
+        profile_name: str | None = None,
+        cancellation_event: threading.Event | None = None,
     ) -> Generator[dict[str, Any], None, None]:
         """
         Runs the login automation.

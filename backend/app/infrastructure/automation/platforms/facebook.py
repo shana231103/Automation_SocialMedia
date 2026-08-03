@@ -1,29 +1,67 @@
-# File: backend/app/infrastructure/automation/platforms/facebook.py
 """Driver-agnostic Facebook login automation script."""
 
-import time
-from typing import Generator, Dict, Any
+from __future__ import annotations
+
+import threading
+from typing import Any, Callable, Dict, Generator
+
 from app.domain.models import LoginStatus
 from app.infrastructure.automation.page_wrapper import AutomationPage
+from app.infrastructure.automation.platforms._helpers import host_and_path, wait_or_cancel
 
-def login_facebook(page: AutomationPage, username: str, password: str, log_func) -> Generator[Dict[str, Any], None, LoginStatus]:
-    yield log_func("Đang truy cập trang chủ Facebook...")
+
+def _is_facebook_authenticated(page: AutomationPage, url: str) -> bool:
+    host, path = host_and_path(url)
+    return bool(
+        page.find("css:[role='feed']", timeout=0.1)
+        or (host in {"facebook.com", "www.facebook.com"} and path == "/home.php")
+    )
+
+
+def _requires_facebook_checkpoint(page: AutomationPage, url: str) -> bool:
+    lowered_url = url.lower()
+    return bool(
+        any(marker in lowered_url for marker in ("checkpoint", "captcha", "challenge"))
+        or page.find("css:[id*='captcha']", timeout=0.1)
+        or page.find("css:[class*='captcha']", timeout=0.1)
+        or page.find("css:iframe[src*='captcha']", timeout=0.1)
+    )
+
+
+def _is_facebook_dead(page: AutomationPage, url: str) -> bool:
+    lowered_url = url.lower()
+    return bool(
+        "disabled" in lowered_url
+        or "suspended" in lowered_url
+        or page.find("text:Your account has been disabled", timeout=0.1)
+        or page.find("text:Your account has been suspended", timeout=0.1)
+    )
+
+
+def _cancelled(cancellation_event: threading.Event | None, seconds: float) -> bool:
+    return wait_or_cancel(seconds, cancellation_event)
+
+
+def login_facebook(
+    page: AutomationPage,
+    username: str,
+    password: str,
+    log_func: Callable[[str], Dict[str, Any]],
+    cancellation_event: threading.Event | None = None,
+) -> Generator[Dict[str, Any], None, LoginStatus]:
+    yield log_func("Opening Facebook...")
     page.goto("https://www.facebook.com/")
-    
-    # Check if already logged in
-    if page.find("css:[role='feed']", timeout=2) or page.find("css:[role='navigation']", timeout=2) or "facebook.com/home.php" in page.url:
-        yield log_func("Đã phát hiện phiên đăng nhập sẵn có.")
+
+    if _is_facebook_authenticated(page, page.url):
+        yield log_func("An existing Facebook session was detected.")
         return LoginStatus.LOGGED_IN
 
-    yield log_func("Nhập thông tin tài khoản Facebook...")
+    yield log_func("Entering Facebook credentials...")
     email_input = page.find("css:input[name='email']", timeout=5)
     pass_input = page.find("css:input[name='pass']", timeout=5)
-    
     if not email_input or not pass_input:
-        yield log_func("Không tìm thấy trường nhập liệu Facebook. Thử tìm locator khác...")
         email_input = page.find("#email", timeout=2)
         pass_input = page.find("#pass", timeout=2)
-
     if not email_input:
         email_input = page.find_with_ai_fallback(
             "css:input[name='email']", "Facebook email or phone input", timeout=2
@@ -32,78 +70,67 @@ def login_facebook(page: AutomationPage, username: str, password: str, log_func)
         pass_input = page.find_with_ai_fallback(
             "css:input[name='pass']", "Facebook password input", timeout=2
         )
+    if not email_input or not pass_input:
+        yield log_func("Facebook credential inputs were not found.")
+        return LoginStatus.LOGGED_OUT
 
-    if email_input and pass_input:
-        email_input.input(username)
-        time.sleep(0.5)
-        pass_input.input(password)
-        time.sleep(0.5)
-        
-        # Locate the button with multiple selector fallbacks using find_first
-        login_btn = page.find_first(
-            "css:button[name='login']",
-            "css:[data-testid='royal_login_button']",
-            "css:button[type='submit']",
-            "css:input[type='submit']",
-            timeout=3
-        )
-                
+    email_input.input(username)
+    if _cancelled(cancellation_event, 0.5):
+        yield log_func("Facebook login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    pass_input.input(password)
+    if _cancelled(cancellation_event, 0.5):
+        yield log_func("Facebook login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+
+    login_btn = page.find_first(
+        "css:button[name='login']",
+        "css:[data-testid='royal_login_button']",
+        "css:button[type='submit']",
+        "css:input[type='submit']",
+        timeout=3,
+    )
+    try:
+        if login_btn:
+            login_btn.click()
+        else:
+            pass_input.press("Enter")
+    except Exception:
         if login_btn:
             try:
-                yield log_func("Click nút Đăng nhập...")
-                login_btn.click()
-            except Exception as e:
-                yield log_func(f"Click thường thất bại ({str(e)}), thử click bằng JS...")
-                try:
-                    login_btn.click(by_js=True)
-                except Exception as ex:
-                    yield log_func(f"Click JS thất bại ({str(ex)}), gửi phím Enter trên ô mật khẩu...")
-                    pass_input.press("Enter")
+                login_btn.click(by_js=True)
+            except Exception:
+                pass_input.press("Enter")
         else:
-            yield log_func("Không tìm thấy nút đăng nhập, gửi phím Enter trên ô mật khẩu...")
-            pass_input.press("Enter")
-            
-        yield log_func("Chờ 10 giây để người dùng giải CAPTCHA (nếu có)...")
-        time.sleep(10)
-            
-        yield log_func("Đang đợi Facebook xác thực (chờ động tối đa 10 giây)...")
-        
-        # Dynamic polling
-        final_status = LoginStatus.LOGGED_OUT
-        for _ in range(20): # 20 * 0.5s = 10s
-            time.sleep(0.5)
-            url = page.url
-            if "checkpoint" in url:
-                yield log_func("Tài khoản yêu cầu phê duyệt đăng nhập / 2FA.")
-                final_status = LoginStatus.CHECKPOINT
-                break
-            elif "login" in url or "error" in url or page.find("css:.login_error_box", timeout=0.1) or page.find("css:[id='error_box']", timeout=0.1):
-                yield log_func("Đăng nhập thất bại. Sai tài khoản mật khẩu hoặc bị chặn.")
-                final_status = LoginStatus.LOGGED_OUT
-                break
-            elif page.find("css:[role='feed']", timeout=0.1) or page.find("css:[role='navigation']", timeout=0.1) or "home" in url or "feed" in url or "facebook.com/home.php" in url:
-                yield log_func("Đăng nhập thành công vào trang chủ.")
-                final_status = LoginStatus.LOGGED_IN
-                break
-            elif "disabled" in url or "suspended" in url or "locked" in page.html.lower():
-                yield log_func("Tài khoản Facebook đã bị vô hiệu hóa.")
-                final_status = LoginStatus.DEAD
-                break
-        else:
-            # Check final states after timeout
-            url = page.url
-            yield log_func(f"Hết thời gian chờ động. URL hiện tại: {url}")
-            if "checkpoint" in url:
-                final_status = LoginStatus.CHECKPOINT
-            elif page.find("css:[role='feed']", timeout=1) or page.find("css:[role='navigation']", timeout=1) or "home" in url or "feed" in url or "facebook.com/home.php" in url:
-                final_status = LoginStatus.LOGGED_IN
-            elif "disabled" in url or "suspended" in url or "locked" in page.html.lower():
-                final_status = LoginStatus.DEAD
-            else:
-                final_status = LoginStatus.LOGGED_OUT
-                yield log_func("Không rõ trạng thái cụ thể, mặc định chưa đăng nhập.")
-                
-        return final_status
-    else:
-        yield log_func("Không thể định vị được ô nhập tài khoản/mật khẩu.")
+            raise
+
+    yield log_func("Waiting for Facebook to respond; solve any CAPTCHA manually if shown.")
+    if _cancelled(cancellation_event, 10):
+        yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
+
+    for _ in range(20):
+        if _cancelled(cancellation_event, 0.5):
+            yield log_func("Facebook login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+        url = page.url
+        if _requires_facebook_checkpoint(page, url):
+            yield log_func("Facebook requires CAPTCHA or a security verification.")
+            return LoginStatus.CHECKPOINT
+        if _is_facebook_dead(page, url):
+            yield log_func("Facebook reports that the account is disabled or suspended.")
+            return LoginStatus.DEAD
+        if _is_facebook_authenticated(page, url):
+            yield log_func("Facebook login succeeded.")
+            return LoginStatus.LOGGED_IN
+        if (
+            "login" in host_and_path(url)[1]
+            or "error" in url.lower()
+            or page.find("css:.login_error_box", timeout=0.1)
+            or page.find("css:[id='error_box']", timeout=0.1)
+        ):
+            yield log_func("Facebook rejected the login credentials or request.")
+            return LoginStatus.LOGGED_OUT
+
+    yield log_func("Facebook login did not reach a conclusive state before the timeout.")
+    return LoginStatus.LOGGED_OUT
