@@ -9,15 +9,17 @@ so platform scripts can use simple `if page.find(...):` patterns safely.
 
 from __future__ import annotations
 
+import base64
 from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from app.infrastructure.automation.page_wrapper import AutomationElement, AutomationPage
+from app.infrastructure.automation.adapters.sensitive_mask import (
+    MASK_SENSITIVE_SCRIPT,
+    REMOVE_SENSITIVE_MASK_SCRIPT,
+)
 
 
-# ---------------------------------------------------------------------------
-# Selector translation
-# ---------------------------------------------------------------------------
 
 def _to_playwright_selector(selector: str) -> str:
     """
@@ -44,10 +46,6 @@ def _to_playwright_selector(selector: str) -> str:
         return selector[6:]
     return selector
 
-
-# ---------------------------------------------------------------------------
-# AutomationElement implementation
-# ---------------------------------------------------------------------------
 
 class PlaywrightElement(AutomationElement):
     """Wraps a Playwright Locator (first match) as an AutomationElement."""
@@ -151,6 +149,25 @@ class PlaywrightPageWrapper(AutomationPage):
         except Exception:
             return ""
 
+    def capture_screenshot_base64(self, mask_sensitive: bool = True) -> str:
+        masked = False
+        try:
+            if mask_sensitive:
+                self._page.evaluate(MASK_SENSITIVE_SCRIPT)
+                masked = True
+            image_bytes = self._page.screenshot(full_page=False)
+            if not isinstance(image_bytes, bytes) or not image_bytes:
+                raise RuntimeError("Playwright returned no screenshot bytes")
+            return base64.b64encode(image_bytes).decode("ascii")
+        except Exception as exc:
+            raise RuntimeError(f"Playwright screenshot capture failed: {exc}") from exc
+        finally:
+            if masked:
+                try:
+                    self._page.evaluate(REMOVE_SENSITIVE_MASK_SCRIPT)
+                except Exception:
+                    pass
+
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> PlaywrightElement | None:
         element = self.find(selector, timeout=timeout)
         if element is not None:
@@ -158,16 +175,13 @@ class PlaywrightPageWrapper(AutomationPage):
 
         from app.infrastructure.ai.vision_client import MultimodalVisionClient
         from app.infrastructure.ai.dom_parser import DOMParser
-        import base64
 
         vision_client = MultimodalVisionClient()
         if not vision_client.is_enabled():
             return None
 
         try:
-            # Capture screenshot as bytes
-            img_bytes = self._page.screenshot(full_page=False)
-            img_b64 = base64.b64encode(img_bytes).decode("utf-8") if isinstance(img_bytes, bytes) else ""
+            img_b64 = self.capture_screenshot_base64()
 
             # Extract DOM snippet
             dom_snippet = DOMParser.extract_interactable_snippet(self.html)

@@ -1,28 +1,32 @@
 # File: backend/app/infrastructure/ai/dom_parser.py
-"""HTML DOM Parser utility to extract lightweight interactable elements for AI analysis."""
+"""Extract compact, privacy-safe DOM evidence for local AI analysis."""
 
+from html import escape
 from html.parser import HTMLParser
-from typing import List, Dict
 
 
 class InteractableHTMLParser(HTMLParser):
-    """HTML Parser that extracts interactable elements and key attributes."""
-    
+    """Collect selected tags without form values or executable content."""
+
     INTERACTABLE_TAGS = {"input", "button", "form", "select", "textarea", "a"}
-    KEEP_ATTRS = {"id", "name", "type", "placeholder", "aria-label", "role", "class", "value"}
+    STATUS_TAGS = INTERACTABLE_TAGS | {"div", "img", "main", "nav", "aside"}
+    KEEP_ATTRS = {
+        "id", "name", "type", "placeholder", "aria-label", "role", "class",
+        "href", "data-testid", "data-e2e",
+    }
 
-    def __init__(self):
+    def __init__(self, status_mode: bool = False):
         super().__init__()
-        self.elements: List[str] = []
+        self.elements: list[str] = []
+        self.allowed_tags = self.STATUS_TAGS if status_mode else self.INTERACTABLE_TAGS
 
-    def handle_starttag(self, tag: str, attrs: List[tuple]):
-        if tag in self.INTERACTABLE_TAGS:
-            attr_dict: Dict[str, str] = {k.lower(): v for k, v in attrs if k.lower() in self.KEEP_ATTRS}
-            attr_str = " ".join([f'{k}="{v}"' for k, v in attr_dict.items() if v])
-            if attr_str:
-                self.elements.append(f"<{tag} {attr_str}>")
-            else:
-                self.elements.append(f"<{tag}>")
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in self.allowed_tags:
+            return
+        kept = {key.lower(): escape(value, quote=True) for key, value in attrs
+                if value and key.lower() in self.KEEP_ATTRS}
+        attr_text = " ".join(f'{key}="{value}"' for key, value in kept.items())
+        self.elements.append(f"<{tag}{' ' + attr_text if attr_text else ''}>")
 
 
 class DOMParser:
@@ -30,27 +34,37 @@ class DOMParser:
 
     @staticmethod
     def extract_interactable_snippet(html_content: str, max_chars: int = 4000) -> str:
-        """
-        Extract interactable HTML elements (inputs, buttons, forms) from raw HTML content.
+        """Return interactable tags while excluding user-entered values."""
+        return DOMParser._extract(html_content, max_chars, status_mode=False, secrets=())
 
-        Args:
-            html_content: Raw HTML string of the webpage.
-            max_chars: Maximum character budget for the resulting snippet.
+    @staticmethod
+    def extract_status_snippet(
+        html_content: str,
+        max_chars: int = 6000,
+        secrets: tuple[str, ...] = (),
+    ) -> str:
+        """Return status-relevant DOM with explicit secrets redacted."""
+        return DOMParser._extract(html_content, max_chars, status_mode=True, secrets=secrets)
 
-        Returns:
-            Truncated string containing lightweight HTML representation.
-        """
+    @staticmethod
+    def _extract(
+        html_content: str,
+        max_chars: int,
+        status_mode: bool,
+        secrets: tuple[str, ...],
+    ) -> str:
         if not html_content:
             return ""
-
-        parser = InteractableHTMLParser()
+        if max_chars < 1:
+            raise ValueError("max_chars must be positive")
+        parser = InteractableHTMLParser(status_mode=status_mode)
         try:
             parser.feed(html_content)
         except Exception:
-            # Return raw truncated HTML as fallback if parsing fails
-            return html_content[:max_chars]
-
+            return ""
         snippet = "\n".join(parser.elements)
+        for secret in sorted((value for value in secrets if value), key=len, reverse=True):
+            snippet = snippet.replace(secret, "[redacted]")
         if len(snippet) > max_chars:
             return snippet[:max_chars] + "\n...[truncated]"
         return snippet

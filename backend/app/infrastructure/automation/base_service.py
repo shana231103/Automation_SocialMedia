@@ -6,6 +6,10 @@ from app.domain.models import Platform, LoginStatus
 from app.application.interfaces import AutomationService, BrowserContextManager
 from app.infrastructure.automation.page_wrapper import AutomationPage
 from app.infrastructure.automation.actions import ACTION_REGISTRY
+from app.infrastructure.automation.login_status_verification import LoginStatusVerificationCoordinator
+from app.infrastructure.automation.login_status_reporting import (
+    decision_to_event_metadata, decision_to_log_message,
+)
 
 
 class BaseAutomationService(AutomationService):
@@ -20,9 +24,11 @@ class BaseAutomationService(AutomationService):
         self,
         browser_manager_factory: Callable[[str, str | None], BrowserContextManager],
         page_wrapper_class: Type[AutomationPage],
+        status_verification: LoginStatusVerificationCoordinator | None = None,
     ):
         self._browser_manager_factory = browser_manager_factory
         self._page_wrapper_class = page_wrapper_class
+        self._status_verification = status_verification
 
     def run_login(
         self,
@@ -53,6 +59,7 @@ class BaseAutomationService(AutomationService):
             return {"type": "log", "message": msg}
 
         final_status_val = LoginStatus.LOGGED_OUT
+        verification_metadata: dict[str, object] | None = None
 
         # Resolve Action class from registry
         action_class = ACTION_REGISTRY.get(action_name)
@@ -81,6 +88,27 @@ class BaseAutomationService(AutomationService):
                     page, params, log
                 )
 
+                coordinator = self._status_verification
+                cancellation_event = params.get("cancellation_event")
+                if (
+                    action_name == "login"
+                    and coordinator is not None
+                    and isinstance(final_status_val, LoginStatus)
+                    and coordinator.should_verify(final_status_val, cancellation_event)
+                ):
+                    yield log("Starting local AI verification of the preliminary login status...")
+                    preliminary_status = final_status_val
+                    decision = coordinator.resolve(
+                        page=page,
+                        platform=params["platform"],
+                        preliminary_status=preliminary_status,
+                        secrets=(str(params.get("username") or ""), str(params.get("password") or "")),
+                        cancellation_event=cancellation_event,
+                    )
+                    final_status_val = decision.final_status
+                    verification_metadata = decision_to_event_metadata(decision)
+                    yield log(decision_to_log_message(decision))
+
         except Exception as e:
             # Yield any logs that were added during setup or before raising the error
             for log_msg in browser_manager.get_new_logs():
@@ -95,8 +123,11 @@ class BaseAutomationService(AutomationService):
                 yield log(log_msg)
 
             # Send final results package exactly once
-            yield {
+            result_event = {
                 "type": "result",
                 "status": final_status_val,
                 "logs": "\n".join(execution_logs),
             }
+            if verification_metadata is not None:
+                result_event["verification"] = verification_metadata
+            yield result_event

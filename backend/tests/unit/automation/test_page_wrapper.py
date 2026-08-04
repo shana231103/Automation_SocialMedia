@@ -58,5 +58,35 @@ class TestPageWrapperTimeouts(unittest.TestCase):
         mock_page.ele.assert_any_call("css:#el3", timeout=1.0)
 
 
+class TestScreenshotCapture(unittest.TestCase):
+    def test_drission_capture_masks_and_restores_page(self):
+        native_page = MagicMock()
+        native_page.get_screenshot.return_value = b"screen"
+        wrapper = DrissionPageWrapper(native_page)
+
+        result = wrapper.capture_screenshot_base64()
+
+        self.assertEqual(result, "c2NyZWVu")
+        self.assertEqual(native_page.run_js.call_count, 2)
+        native_page.get_screenshot.assert_called_once_with(as_bytes=True)
+
+    def test_playwright_capture_masks_and_restores_page(self):
+        native_page = MagicMock()
+        native_page.screenshot.return_value = b"screen"
+        wrapper = PlaywrightPageWrapper(native_page)
+
+        result = wrapper.capture_screenshot_base64()
+
+        self.assertEqual(result, "c2NyZWVu")
+        self.assertEqual(native_page.evaluate.call_count, 2)
+        native_page.screenshot.assert_called_once_with(full_page=False)
+
+    def test_screenshot_error_still_removes_sensitive_mask(self):
+        native_page = MagicMock()
+        native_page.screenshot.side_effect = RuntimeError("capture failed")
+        with self.assertRaisesRegex(RuntimeError, "screenshot capture failed"):
+            PlaywrightPageWrapper(native_page).capture_screenshot_base64()
+        self.assertEqual(native_page.evaluate.call_count, 2)
+
 if __name__ == "__main__":
     unittest.main()

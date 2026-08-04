@@ -39,6 +39,8 @@ class MockPage(AutomationPage):
         self._html = "<html></html>"
         self.navigated_urls = []
         self.elements = {}
+        self.find_first_calls = []
+        self.ai_calls = []
 
     def goto(self, url: str) -> None:
         self._url = url
@@ -48,13 +50,18 @@ class MockPage(AutomationPage):
         return self.elements.get(selector)
 
     def find_first(self, *selectors: str, timeout: float = 5.0) -> AutomationElement | None:
+        self.find_first_calls.append((selectors, timeout))
         for selector in selectors:
             if selector in self.elements:
                 return self.elements[selector]
         return None
 
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
+        self.ai_calls.append((selector, hint_text, timeout))
         return self.find(selector, timeout=timeout)
+
+    def capture_screenshot_base64(self, mask_sensitive: bool = True) -> str:
+        return "ZmFrZQ=="
 
     @property
     def url(self) -> str:
@@ -156,6 +163,24 @@ class TestFacebookLoginScript(unittest.TestCase):
         self.assertIn("Facebook login succeeded.", self.logs)
 
 
+
+
+    def test_missing_inputs_use_short_probes_and_report_ai_progress(self):
+        generator = login_facebook(self.page, "user", "pass", self.log_func)
+        with self.assertRaises(StopIteration) as stopped:
+            while True:
+                next(generator)
+
+        self.assertEqual(stopped.exception.value, LoginStatus.LOGGED_OUT)
+        credential_calls = self.page.find_first_calls[-2:]
+        self.assertEqual([call[1] for call in credential_calls], [1.5, 1.5])
+        self.assertEqual([call[2] for call in self.page.ai_calls], [0.1, 0.1])
+        self.assertIn(
+            "Facebook email input changed; asking local AI for a selector...", self.logs,
+        )
+        self.assertIn(
+            "Facebook password input changed; asking local AI for a selector...", self.logs,
+        )
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 import os
 import json
+from dataclasses import asdict
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.database.connection import get_db, SessionLocal
 from app.infrastructure.database.repositories import SqlAlchemyAccountRepository, SqlAlchemyLoginHistoryRepository
 from app.infrastructure.automation.drission_page import DrissionPageAutomationService
+from app.infrastructure.automation.login_status_verification import LoginStatusVerificationCoordinator
 from app.application.interfaces import AutomationService
 from app.application.use_cases.manage_accounts import GetAccountsUseCase, CreateAccountUseCase, DeleteAccountUseCase
 from app.application.use_cases.run_login import RunLoginUseCase
@@ -15,12 +17,16 @@ from app.presentation.schemas import AccountCreate, AccountResponse, LoginHistor
 
 router = APIRouter(prefix="/api")
 
+def get_status_verification_coordinator() -> LoginStatusVerificationCoordinator:
+    return LoginStatusVerificationCoordinator.from_env()
+
 def get_automation_service() -> AutomationService:
     provider = os.getenv("AUTOMATION_PROVIDER", "drissionpage").lower()
+    status_verification = get_status_verification_coordinator()
     if provider == "playwright":
         from app.infrastructure.automation.playwright_service import PlaywrightAutomationService
-        return PlaywrightAutomationService()
-    return DrissionPageAutomationService()
+        return PlaywrightAutomationService(status_verification=status_verification)
+    return DrissionPageAutomationService(status_verification=status_verification)
 
 
 @router.get("/accounts", response_model=List[AccountResponse])
@@ -138,7 +144,11 @@ def batch_login(
 def get_ai_status():
     from app.infrastructure.ai.vision_client import MultimodalVisionClient
     client = MultimodalVisionClient()
+
+    status_health = get_status_verification_coordinator().get_status()
     return {
         "enabled": client.is_enabled(),
-        "provider": client.provider
+        "provider": client.provider,
+        "model": client.model,
+        "status_verification": asdict(status_health),
     }

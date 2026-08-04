@@ -1,60 +1,82 @@
-# Nhật ký thay đổi (Changelog)
+# Nhật ký thay đổi
 
-Mọi thay đổi lớn đối với dự án này sẽ được ghi nhận và cập nhật trong file này theo định dạng [Keep a Changelog](https://keepachangelog.com/vi/1.0.0/).
+Các thay đổi đáng chú ý của backend được ghi theo định dạng [Keep a Changelog](https://keepachangelog.com/vi/1.0.0/).
 
----
+## [1.4.0] - 2026-08-04
+
+### Thêm mới
+
+- Thêm batch login qua `/api/batch-login`, hỗ trợ giới hạn `MAX_CONCURRENT_LOGINS`, `MAX_BATCH_SIZE`, profile slot riêng và SSE multiplexed logs.
+- Thêm `gemlogin_profile_name` cho từng tài khoản và gửi giá trị này từ frontend khi tạo tài khoản.
+- Thêm AI selector fallback dùng ảnh chụp màn hình cùng DOM rút gọn để tìm lại ô đăng nhập qua Ollama local (`qwen3.5:9b`).
+- Thêm endpoint `/api/ai/status` để kiểm tra AI fallback có sẵn hay không.
+- Thêm unit test cho AI client, cancellation và các lỗi phân loại trạng thái của Facebook, TikTok, X và YouTube.
+
+### Thay đổi
+
+- Chuyển toàn bộ dependency Python sang `requirements.txt`; dự án không còn phụ thuộc vào UV hoặc cấu hình dependency trong `pyproject.toml`.
+- Batch login loại bỏ ID trùng lặp, từ chối ID không hợp lệ và dùng database session riêng cho từng worker thread.
+- `AutomationService.run_login` nhận thêm cancellation event tùy chọn; tín hiệu này được truyền qua `LoginAction` xuống platform flow.
+- Thay các khoảng chờ không thể ngắt bằng cơ chế `wait_or_cancel`, giúp worker dừng sớm khi client SSE ngắt kết nối.
+- Chuẩn hóa nhận diện trạng thái bằng hostname/path và tín hiệu UI cụ thể thay vì tìm substring trên toàn URL hoặc HTML.
+- Log AI status verification hiển thị trạng thái dự đoán, confidence, lý do, bằng chứng hình ảnh/DOM và failure code đã được lọc dữ liệu nhạy cảm.
+
+### Sửa lỗi
+
+- Facebook: CAPTCHA/security challenge không còn bị nhận nhầm là tài khoản `dead` do từ `locked` trong HTML.
+- Facebook: giảm ngân sách tìm credential selector, bỏ các lượt tìm lặp và báo rõ khi chuyển sang Ollama selector fallback.
+- YouTube: URL Google Sign-In chứa `continue=https://www.youtube.com/` không còn bị nhận nhầm là đăng nhập thành công.
+- X: query redirect chứa `/home` không còn bị nhận nhầm là đã đăng nhập.
+- TikTok: URL `/foryou` khi chưa có profile UI không còn được xem là phiên đăng nhập hợp lệ.
+- Sửa thống kê batch khi trạng thái thành công được trả về dưới dạng enum hoặc string.
+- Tránh nạp SQLAlchemy session factory trong luồng đăng nhập đơn khi không cần thiết.
 
 ## [1.3.0] - 2026-07-03
 
-### Thêm mới (Added)
-- **Kiến trúc kịch bản độc lập driver (Driver-Agnostic)**: Tạo interface `AutomationPage` và `AutomationElement` làm cầu nối trừu tượng giúp chạy kịch bản chung cho cả `DrissionPage` và `Playwright`.
-- **Command-Based Actions (Registry Pattern)**: Tách các kịch bản đăng nhập thành lớp `LoginAction` độc lập kế thừa từ `AutomationAction`, cho phép dịch vụ tự động hóa (`PlaywrightAutomationService` và `DrissionPageAutomationService`) điều phối tác vụ động thông qua `ACTION_REGISTRY`.
-- **Bộ Unit Test mới**: Thêm các tệp `test_page_wrapper.py`, `test_platforms_facebook.py`, và `test_action_registry.py` để kiểm thử toàn diện các adapter, dispatcher, và mock platform logic.
+### Thêm mới
 
-### Thay đổi (Changed)
-- **Tương thích ngược**: Sửa đổi `drission_page.py` và `playwright_service.py` chuyển đổi `run_login` gọi ủy quyền sang dispatcher động `run_action` để không làm ảnh hưởng tới FastAPI presentation API hiện tại.
+- Thêm abstraction `AutomationPage` và `AutomationElement` dùng chung cho DrissionPage và Playwright.
+- Thêm `AutomationAction`, `LoginAction` và `ACTION_REGISTRY` để điều phối action theo command pattern.
+- Thêm unit test cho selector adapter, action registry và platform Facebook.
 
-### Loại bỏ (Removed)
-- **Xóa kịch bản trùng lặp**: Loại bỏ hoàn toàn các thư mục kịch bản cũ `platforms_drissionpage` và `platforms_playwright`.
+### Thay đổi
 
----
+- Hợp nhất các platform script để không còn duy trì logic riêng cho từng browser driver.
+- `DrissionPageAutomationService` và `PlaywrightAutomationService` dùng chung `BaseAutomationService` và action dispatcher.
+
+### Loại bỏ
+
+- Loại bỏ các thư mục platform trùng lặp dành riêng cho DrissionPage và Playwright.
 
 ## [1.2.0] - 2026-07-02
 
-### Thêm mới (Added)
-- **Tích hợp Playwright**: Bổ sung `PlaywrightAutomationService` cùng các kịch bản đăng nhập Playwright cho 4 nền tảng mạng xã hội (Facebook, YouTube, TikTok, Twitter).
-- **Cấu hình chuyển đổi tự động**: Thêm cấu hình `AUTOMATION_PROVIDER` vào tệp `.env` và áp dụng cơ chế Dependency Injection ở lớp Presentation của FastAPI (`api.py`) để chuyển đổi linh hoạt giữa DrissionPage và Playwright.
-- **Tách tệp helper CSS Frontend**: Tạo mới tệp `helpers.js` dùng chung để định dạng màu sắc badge và nền tảng.
-- **Các thành phần Frontend riêng biệt**: Tái cấu trúc giao diện Vue 3, chia nhỏ `App.vue` thành các component: `Header.vue`, `AccountForm.vue`, `AccountList.vue`, `ConsoleTerminal.vue`, `HistoryTable.vue`, `LogsModal.vue`.
+### Thêm mới
 
-### Thay đổi (Changed)
-- **Đổi tên thư mục kịch bản**: Đổi tên thư mục `platforms` của DrissionPage thành `platforms_drissionpage` để đồng bộ cấu trúc với `platforms_playwright`.
-- **Tối ưu hóa Event Loop trên Windows**: Thiết lập `WindowsProactorEventLoopPolicy` để khắc phục triệt để lỗi `NotImplementedError` khi chạy tiến trình con của Playwright trên Windows.
+- Tích hợp Playwright cho Facebook, YouTube, TikTok và X.
+- Thêm `AUTOMATION_PROVIDER` để lựa chọn DrissionPage hoặc Playwright.
+- Tách giao diện Vue thành các component quản lý tài khoản, console và lịch sử.
 
----
+### Thay đổi
+
+- Tối ưu vòng lặp sự kiện Windows phục vụ tiến trình Playwright.
 
 ## [1.1.0] - 2026-06-25
 
+### Thêm mới
 
-### Thêm mới (Added)
-- **Interface `BrowserContextManager`**: Định nghĩa giao diện tiêu chuẩn cho các dịch vụ quản lý trình duyệt tự động hóa kịch bản, kế thừa cơ chế Context Manager của Python (`__enter__`, `__exit__`).
-- **Module `GemLoginBrowser`**: Tách logic điều khiển trình duyệt qua GemLogin API thành lớp context manager độc lập trong file [gemlogin_browser.py](file:///Users/kyle/Desktop/Automation_SocialMedia-main/backend/app/infrastructure/automation/gemlogin_browser.py).
-- **Module `LocalBrowser`**: Hỗ trợ khởi chạy và tắt trực tiếp trình duyệt Chrome local thông qua dòng lệnh bằng cách quản lý tiến trình hệ thống qua `subprocess` trong file [local_browser.py](file:///Users/kyle/Desktop/Automation_SocialMedia-main/backend/app/infrastructure/automation/local_browser.py).
-- **Dependency Injection (DI) cho Automation Service**: Cập nhật `DrissionPageAutomationService` cho phép nhận vào một factory của `BrowserContextManager` từ bên ngoài để dễ dàng mở rộng sang các dịch vụ trình duyệt khác (GoLogin, ixBrowser, GinLogin,...).
-- **Bộ Unit Test Đơn Vị Cô Lập**: Thiết lập bộ unit test [test_gemlogin_browser.py](file:///Users/kyle/.gemini/antigravity-ide/brain/daad858c-9472-4203-84bf-7cd843eb79b6/scratch/test_gemlogin_browser.py) bằng Mocking để chạy kiểm thử mà không cần cài đặt database hay bật trình duyệt thực tế.
-- **Tài liệu đào tạo**: Tài liệu kỹ thuật chi tiết bằng tiếng Việt [docs/browser_refactor_training.md](file:///Users/kyle/Desktop/Automation_SocialMedia-main/backend/docs/browser_refactor_training.md) dùng để đào tạo các nhà phát triển mới của dự án.
-- **Makefile & README.md**: Bổ sung tệp tin hỗ trợ chạy nhanh tác vụ phát triển và tệp tin giới thiệu, hướng dẫn thiết lập hệ thống.
+- Thêm `BrowserContextManager`, `GemLoginBrowser` và `LocalBrowser` để quản lý vòng đời trình duyệt.
+- Hỗ trợ inject browser manager factory vào automation service.
+- Thêm Makefile, integration test và tài liệu backend ban đầu.
 
-### Thay đổi (Changed)
-- Cập nhật kịch bản chạy đăng nhập trong `DrissionPageAutomationService.run_login` để nạp trình duyệt qua factory và bọc toàn bộ bằng khối lệnh `with` Context Manager giúp tài nguyên luôn được giải phóng an toàn khi có lỗi hoặc thoát.
-- Loại bỏ hoàn toàn mã nguồn thừa và các import không sử dụng (Dict, List, ChromiumPage, ChromiumOptions) trong file `drission_page.py`.
+### Thay đổi
 
----
+- Bao bọc phiên browser bằng context manager để giải phóng tài nguyên khi thành công, lỗi hoặc bị hủy.
 
 ## [1.0.0] - 2026-06-25
 
-### Thêm mới (Added)
-- Khởi tạo khung dự án tự động hóa mạng xã hội (Backend FastAPI).
-- Thiết lập kịch bản đăng nhập cơ bản cho Facebook, YouTube, TikTok, Twitter sử dụng DrissionPage.
-- Tích hợp kết nối cơ sở dữ liệu PostgreSQL qua SQLAlchemy để lưu trữ tài khoản và lịch sử đăng nhập.
-- Cung cấp API endpoint stream logs trực quan qua kết nối SSE.
+### Thêm mới
+
+- Khởi tạo backend FastAPI.
+- Thêm đăng nhập cơ bản cho Facebook, YouTube, TikTok và X bằng DrissionPage.
+- Tích hợp PostgreSQL qua SQLAlchemy để lưu tài khoản và lịch sử.
+- Thêm SSE để stream log thực thi.

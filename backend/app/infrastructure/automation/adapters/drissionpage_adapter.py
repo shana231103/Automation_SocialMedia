@@ -9,11 +9,16 @@ underlying ChromiumPage and ChromiumElement objects.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from DrissionPage import ChromiumPage
 
 from app.infrastructure.automation.page_wrapper import AutomationElement, AutomationPage
+from app.infrastructure.automation.adapters.sensitive_mask import (
+    MASK_SENSITIVE_SCRIPT,
+    REMOVE_SENSITIVE_MASK_SCRIPT,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +137,25 @@ class DrissionPageWrapper(AutomationPage):
         except Exception:
             return ""
 
+    def capture_screenshot_base64(self, mask_sensitive: bool = True) -> str:
+        masked = False
+        try:
+            if mask_sensitive:
+                self._page.run_js(MASK_SENSITIVE_SCRIPT)
+                masked = True
+            image_bytes = self._page.get_screenshot(as_bytes=True)
+            if not isinstance(image_bytes, bytes) or not image_bytes:
+                raise RuntimeError("DrissionPage returned no screenshot bytes")
+            return base64.b64encode(image_bytes).decode("ascii")
+        except Exception as exc:
+            raise RuntimeError(f"DrissionPage screenshot capture failed: {exc}") from exc
+        finally:
+            if masked:
+                try:
+                    self._page.run_js(REMOVE_SENSITIVE_MASK_SCRIPT)
+                except Exception:
+                    pass
+
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> DrissionPageElement | None:
         element = self.find(selector, timeout=timeout)
         if element is not None:
@@ -139,16 +163,13 @@ class DrissionPageWrapper(AutomationPage):
 
         from app.infrastructure.ai.vision_client import MultimodalVisionClient
         from app.infrastructure.ai.dom_parser import DOMParser
-        import base64
 
         vision_client = MultimodalVisionClient()
         if not vision_client.is_enabled():
             return None
 
         try:
-            # Capture screenshot as bytes
-            img_bytes = self._page.get_screenshot(as_bytes=True)
-            img_b64 = base64.b64encode(img_bytes).decode("utf-8") if isinstance(img_bytes, bytes) else ""
+            img_b64 = self.capture_screenshot_base64()
 
             # Extract DOM snippet
             dom_snippet = DOMParser.extract_interactable_snippet(self.html)

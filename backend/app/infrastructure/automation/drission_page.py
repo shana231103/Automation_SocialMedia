@@ -6,6 +6,7 @@ from app.application.interfaces import BrowserContextManager
 from app.infrastructure.automation.adapters import DrissionPageWrapper
 from app.infrastructure.automation.gemlogin_browser import GemLoginBrowser
 from app.infrastructure.automation.base_service import BaseAutomationService
+from app.infrastructure.automation.login_status_verification import LoginStatusVerificationCoordinator
 
 
 def default_browser_manager_factory(profile_key: str, profile_name: str | None = None) -> BrowserContextManager:
@@ -28,10 +29,12 @@ class DrissionPageAutomationService(BaseAutomationService):
     def __init__(
         self,
         browser_manager_factory: Callable[[str, str | None], BrowserContextManager] | None = None,
+        status_verification: LoginStatusVerificationCoordinator | None = None,
     ):
         super().__init__(
             browser_manager_factory=browser_manager_factory or default_browser_manager_factory,
             page_wrapper_class=DrissionPageWrapper,
+            status_verification=status_verification or LoginStatusVerificationCoordinator.from_env(),
         )
 
 

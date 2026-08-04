@@ -153,6 +153,10 @@ class AutomationPage(ABC):
         """
 
     @abstractmethod
+    def capture_screenshot_base64(self, mask_sensitive: bool = True) -> str:
+        """Capture the current viewport as base64 PNG, masking editable fields by default."""
+
+    @abstractmethod
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
         """
         Search for an element using canonical selector first. If not found and AI Fallback

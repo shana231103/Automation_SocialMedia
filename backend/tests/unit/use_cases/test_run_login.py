@@ -79,6 +79,32 @@ class TestRunLoginUseCase(unittest.TestCase):
             "MyGemProfile_A"
         )
 
+    def test_verified_final_status_and_metadata_are_persisted_and_forwarded(self):
+        verification = {
+            "outcome": "overridden",
+            "preliminary_status": LoginStatus.DEAD.value,
+            "ai_status": LoginStatus.CHECKPOINT.value,
+        }
+        self.mock_automation_service.run_login.return_value = [
+            {
+                "type": "result",
+                "status": LoginStatus.CHECKPOINT,
+                "logs": "AI status verification overridden",
+                "verification": verification,
+            }
+        ]
+        use_case = RunLoginUseCase(
+            account_repo=self.mock_account_repo,
+            history_repo=self.mock_history_repo,
+            automation_service=self.mock_automation_service,
+        )
+
+        events = list(use_case.execute(1))
+
+        result = next(event for event in events if event["type"] == "result")
+        self.assertEqual(result["verification"], verification)
+        self.assertEqual(self.mock_account.status, LoginStatus.CHECKPOINT)
+
     def test_single_run_stops_when_cancellation_is_requested(self):
         cancellation_event = threading.Event()
         cancellation_event.set()

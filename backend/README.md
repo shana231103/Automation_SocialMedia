@@ -1,109 +1,146 @@
-# Automation Social Media - Backend
+# Automation Social Media — Backend
 
-Hệ thống Backend tự động hóa đăng nhập và tương tác trên các nền tảng mạng xã hội (Facebook, YouTube, TikTok, Twitter) sử dụng **FastAPI**, **SQLAlchemy (PostgreSQL)**, **DrissionPage** và **Playwright**.
+Backend FastAPI dùng để quản lý tài khoản và kiểm tra trạng thái đăng nhập Facebook, YouTube, TikTok và X (Twitter) qua trình duyệt GemLogin. Hệ thống hỗ trợ DrissionPage hoặc Playwright, stream tiến trình bằng Server-Sent Events (SSE), chạy nhiều tài khoản theo batch và lưu lịch sử vào PostgreSQL.
 
----
+## Tính năng chính
 
-## 1. Tính năng nổi bật
-- **API Đăng nhập Tự động**: Hỗ trợ đăng nhập tự động qua trình duyệt antidetect (như GemLogin, GoLogin,...) hoặc trình duyệt local thuần thông qua dòng lệnh.
-- **Kiến trúc Linh hoạt & Đa Driver (Dependency Injection)**: Lớp dịch vụ tự động hóa giao tiếp qua Interface chung (`AutomationService`). Người dùng có thể dễ dàng chuyển đổi qua lại giữa **DrissionPage** và **Playwright** thông qua tệp cấu hình `.env` mà không ảnh hưởng tới code logic nghiệp vụ.
-- **Tự động hóa an toàn (Context Manager)**: Đảm bảo đóng trình duyệt sạch sẽ và chụp ảnh màn hình lưu vết lỗi/kết quả khi phiên kết thúc hoặc xảy ra lỗi bất ngờ.
-- **Luồng Server-Sent Events (SSE)**: Stream log thời gian thực từ backend về frontend để người dùng theo dõi tiến trình chạy kịch bản tự động hóa trực quan.
+- CRUD tài khoản mạng xã hội và gán `gemlogin_profile_name` riêng cho từng tài khoản.
+- Đăng nhập đơn hoặc batch, giới hạn số phiên chạy đồng thời và stream log thời gian thực bằng SSE.
+- Kiến trúc driver-agnostic: cùng một platform flow hoạt động với DrissionPage và Playwright.
+- AI selector fallback qua Ollama local (`qwen3.5:9b`) khi selector tĩnh của ô đăng nhập không còn phù hợp.
+- AI status verification ghi rõ dự đoán, độ tin cậy, lý do, bằng chứng hình ảnh/DOM và mã lỗi fallback.
+- Phân loại trạng thái `logged in`, `logged out`, `checkpoint` và `dead` bằng hostname/path cùng tín hiệu UI cụ thể.
+- Cooperative cancellation: phiên đang chờ có thể dừng sớm khi client đóng kết nối batch.
+- Unit test không yêu cầu PostgreSQL hoặc GemLogin thật.
 
----
+> AI chỉ hỗ trợ tìm selector và đánh giá trạng thái. Hệ thống không tự giải CAPTCHA, 2FA hoặc bước xác minh bảo mật; người dùng vẫn phải xử lý thủ công.
 
-## 2. Cấu trúc Dự án
+## Công nghệ
+
+- Python 3.11+
+- FastAPI và Uvicorn
+- SQLAlchemy 2, PostgreSQL và psycopg 3
+- DrissionPage hoặc Playwright
+- Vue 3 frontend
+- Ollama local với model vision `qwen3.5:9b`
+
+## Cấu trúc chính
+
 ```text
 backend/
 ├── app/
-│   ├── application/        # Chứa Use Cases (Nghiệp vụ) và Interfaces trừu tượng
-│   ├── domain/             # Chứa Entities (Models nghiệp vụ) và định nghĩa Repositories
-│   ├── infrastructure/     # Cài đặt cụ thể Database (PostgreSQL), Repositories và Automation
-│   │   ├── database/       # Cấu hình SQLAlchemy Connection, Models database, và Repositories
-│   │   └── automation/     # Logic tự động hóa trình duyệt và quản lý vòng đời
-│   │       ├── platforms_drissionpage/  # Kịch bản DrissionPage (FB, YT, TT, TW)
-│   │       ├── platforms_playwright/    # Kịch bản Playwright (FB, YT, TT, TW)
-│   │       ├── gemlogin_browser.py      # Bộ quản lý trình duyệt GemLogin (DrissionPage)
-│   │       ├── local_browser.py         # Bộ quản lý trình duyệt local (DrissionPage)
-│   │       ├── playwright_browser.py    # Bộ quản lý trình duyệt GemLogin & local (Playwright)
-│   │       ├── drission_page.py         # Dịch vụ tự động hóa DrissionPage
-│   │       └── playwright_service.py    # Dịch vụ tự động hóa Playwright
-│   └── presentation/       # Lớp giao tiếp FastAPI endpoints (API Routes) và Schemas
-├── docs/                   # Tài liệu hướng dẫn (Đào tạo refactoring, v.v.)
-├── requirements.txt        # Các thư viện phụ thuộc của Python
-├── test_automation.py      # Kịch bản kiểm thử tích hợp (Integration Test)
-├── create_db.py            # Script khởi tạo cơ sở dữ liệu ban đầu
-└── Makefile                # Tiện ích chạy nhanh các tác vụ phát triển
+│   ├── application/
+│   │   ├── interfaces.py
+│   │   └── use_cases/
+│   ├── domain/
+│   ├── infrastructure/
+│   │   ├── ai/                    # DOM parser và AI selector fallback
+│   │   ├── automation/
+│   │   │   ├── actions/           # Action registry và LoginAction
+│   │   │   ├── adapters/          # Adapter DrissionPage/Playwright
+│   │   │   ├── platforms/         # Facebook, TikTok, X và YouTube
+│   │   │   ├── base_service.py
+│   │   │   └── *_browser.py
+│   │   └── database/
+│   ├── presentation/              # FastAPI routes và Pydantic schemas
+│   └── main.py
+├── tests/unit/
+├── requirements.txt
+├── create_db.py
+└── test_automation.py
 ```
 
----
+## Cài đặt trên Windows PowerShell
 
-## 3. Hướng dẫn Cài đặt & Khởi chạy
+Từ thư mục `backend`:
 
-### 3.1 Yêu cầu hệ thống
-- Python 3.11 trở lên
-- PostgreSQL Database đang chạy
-- Ứng dụng GemLogin hoặc Google Chrome được cài đặt trên máy
-
-### 3.2 Các bước thiết lập
-1. **Clone mã nguồn và di chuyển vào thư mục backend**:
-   ```bash
-   cd backend
-   ```
-2. **Khởi tạo môi trường ảo (Virtual Environment)**:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate  # Trên macOS/Linux
-   # Hoặc .venv\Scripts\activate trên Windows
-   ```
-3. **Cài đặt thư viện dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. **Cấu hình file môi trường `.env`**:
-   Tạo file `.env` ở thư mục gốc của backend với nội dung tương tự sau:
-   ```env
-   # Chọn công cụ tự động hóa: playwright hoặc drissionpage
-   AUTOMATION_PROVIDER=playwright
-
-   DATABASE_URL=postgresql://postgres:password@localhost:5432/social_automation
-   GEMLOGIN_API_URL=http://127.0.0.1:1010/api
-   GEMLOGIN_PROFILE_NAME=default
-   ```
-5. **Khởi tạo các bảng cơ sở dữ liệu**:
-   ```bash
-   python create_db.py
-   ```
-
-### 3.3 Khởi chạy ứng dụng
-Chạy server phát triển FastAPI (sử dụng Uvicorn):
-```bash
-uvicorn app.main:app --reload --port 8000
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
-Server Swagger UI sẽ khả dụng tại địa chỉ: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
----
+Nếu PowerShell chặn script kích hoạt, có thể bỏ qua bước activate và gọi trực tiếp `.venv\Scripts\python.exe` trong các lệnh bên dưới.
 
-## 4. Kiểm thử (Testing)
+## Cấu hình
 
-### 4.1 Chạy Unit Test (Kiểm thử đơn vị cô lập)
-Sử dụng bộ test giả lập (Mocking) không cần DB hay GemLogin thật:
-```bash
-python -m unittest discover -s .
+Tạo `backend/.env` và không commit file này:
+
+```env
+AUTOMATION_PROVIDER=drissionpage
+
+DATABASE_URL=postgresql+psycopg://postgres:password@localhost:5432/social_automation
+
+GEMLOGIN_API_URL=http://127.0.0.1:1010/api
+GEMLOGIN_PROFILE_NAME=default
+
+MAX_CONCURRENT_LOGINS=3
+MAX_BATCH_SIZE=100
+
+ENABLE_AI_FALLBACK=true
+ENABLE_AI_STATUS_VERIFICATION=true
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3.5:9b
+OLLAMA_TIMEOUT_SECONDS=60
+OLLAMA_SELECTOR_TIMEOUT_SECONDS=20
 ```
-*(Hoặc chạy qua Makefile: `make test`)*
 
-### 4.2 Chạy Integration Test (Kiểm thử tích hợp)
-Chạy thử kịch bản đăng nhập thực tế (Tự động đọc cấu hình driver từ file `.env`):
-```bash
+Giá trị `AUTOMATION_PROVIDER` hợp lệ là `drissionpage` hoặc `playwright`. Ollama phải chạy cục bộ tại `OLLAMA_BASE_URL` và đã tải model `OLLAMA_MODEL`. Không cấu hình API key hoặc endpoint AI bên ngoài.
+
+## Khởi tạo database
+
+```powershell
+python create_db.py
+```
+
+## Chạy backend
+
+```powershell
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+Dùng `python -m uvicorn` thay vì gọi `uvicorn` trực tiếp để bảo đảm server chạy bằng đúng Python trong virtual environment.
+
+- API: `http://127.0.0.1:8000/api`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+
+## API chính
+
+| Method | Endpoint | Chức năng |
+|---|---|---|
+| `GET` | `/api/accounts` | Danh sách tài khoản |
+| `POST` | `/api/accounts` | Tạo tài khoản |
+| `DELETE` | `/api/accounts/{account_id}` | Xóa tài khoản |
+| `GET` | `/api/history` | Lịch sử đăng nhập |
+| `POST` | `/api/history/clear` | Xóa lịch sử |
+| `GET` | `/api/run-login/{account_id}` | Chạy một tài khoản và stream SSE |
+| `GET` | `/api/batch-login?account_ids=1,2,3` | Chạy batch và stream SSE |
+| `GET` | `/api/ai/status` | Trạng thái AI selector fallback |
+
+API hiện không có cơ chế xác thực. Chỉ nên chạy trong máy cá nhân hoặc mạng nội bộ được bảo vệ.
+
+## Kiểm thử
+
+Chạy toàn bộ unit test từ thư mục `backend`:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Chạy integration test với database và trình duyệt thật:
+
+```powershell
 python test_automation.py
 ```
-*(Hoặc chạy qua Makefile: `make test-integration`)*
 
----
+Integration test yêu cầu PostgreSQL, GemLogin và cấu hình `.env` hợp lệ.
 
-## 5. Tài liệu Đào tạo Nhà phát triển Mới
-Vui lòng tham khảo tài liệu [docs/browser_refactor_training.md](file:///Users/kyle/Desktop/Automation_SocialMedia-main/backend/docs/browser_refactor_training.md) để tìm hiểu sâu về:
-- Cách hoạt động chi tiết của các lớp quản lý trình duyệt.
-- Hướng dẫn cách tạo và tích hợp thêm trình duyệt mới (như GoLogin, ixBrowser).
-- Kiến trúc Dependency Injection đã triển khai.
+## Quy tắc xác định trạng thái
+
+- `logged in`: hostname/path hợp lệ và/hoặc có UI xác nhận phiên đăng nhập.
+- `checkpoint`: CAPTCHA, 2FA hoặc security challenge cần người dùng xử lý.
+- `dead`: chỉ khi có bằng chứng cụ thể rằng tài khoản bị disabled, suspended hoặc banned.
+- `logged out`: sai thông tin đăng nhập, không tìm thấy tài khoản hoặc hết thời gian mà không có trạng thái xác định.
+
+Không dùng substring chung như `home`, `youtube.com`, `foryou` hoặc `locked` trên toàn bộ URL/HTML để kết luận trạng thái.

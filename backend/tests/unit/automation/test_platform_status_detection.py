@@ -47,6 +47,9 @@ class FakePage(AutomationPage):
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
         return self.find(selector, timeout)
 
+    def capture_screenshot_base64(self, mask_sensitive: bool = True) -> str:
+        return "ZmFrZQ=="
+
     @property
     def url(self) -> str:
         return self._url

@@ -1,135 +1,157 @@
 # File: backend/app/infrastructure/ai/vision_client.py
-"""Vision LLM Client for Computer Vision and DOM-based element detection."""
+"""Loopback Ollama vision client for DOM-assisted element detection."""
 
-import os
-import json
 import logging
+import os
 from abc import ABC, abstractmethod
-from typing import Optional
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import requests
-from pydantic import BaseModel
+
 
 logger = logging.getLogger(__name__)
 
 
 class ElementPrediction(BaseModel):
-    """Prediction result containing suggested CSS/XPath selector and confidence score."""
-    selector: Optional[str] = None
-    confidence: float = 0.0
-    reasoning: str = ""
+    """Structured selector prediction returned by the local vision model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    selector: str | None = Field(default=None, max_length=500)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reasoning: str = Field(default="", max_length=500)
+
+    @field_validator("selector")
+    @classmethod
+    def normalize_selector(cls, selector: str | None) -> str | None:
+        if not selector or not selector.strip():
+            return None
+        normalized = selector.strip()
+        for prefix in ("css:", "xpath:"):
+            if normalized.startswith(prefix):
+                return prefix + normalized[len(prefix):].strip()
+        return normalized
 
 
 class VisionClient(ABC):
-    """Abstract interface for AI Vision Multimodal LLM Clients."""
+    """Abstract interface for AI-assisted element detection."""
 
     @abstractmethod
-    def predict_element(self, image_base64: str, dom_snippet: str, hint_text: str) -> ElementPrediction:
-        """
-        Analyze screenshot and DOM snippet to predict target element selector.
-
-        Args:
-            image_base64: Base64-encoded PNG screenshot.
-            dom_snippet: Filtered interactable HTML DOM snippet.
-            hint_text: Description of target element (e.g. 'Email/Username input').
-
-        Returns:
-            ElementPrediction DTO containing predicted selector and confidence.
-        """
-        pass
+    def predict_element(
+        self, image_base64: str, dom_snippet: str, hint_text: str,
+    ) -> ElementPrediction:
+        """Predict a selector from a screenshot, compact DOM, and target hint."""
+        raise NotImplementedError
 
     @abstractmethod
     def is_enabled(self) -> bool:
-        """Return True if AI Vision Fallback is enabled in environment settings."""
-        pass
+        """Return whether selector fallback is enabled."""
+        raise NotImplementedError
 
 
 class MultimodalVisionClient(VisionClient):
-    """Production implementation of VisionClient using Google Gemini / OpenAI REST APIs."""
+    """Predict selectors with a local Ollama multimodal model."""
 
-    def __init__(self):
-        self.provider = os.getenv("AI_PROVIDER", "gemini").lower()
-        self.enabled = os.getenv("ENABLE_AI_FALLBACK", "false").lower() in ("true", "1", "yes")
-        self.gemini_key = os.getenv("GEMINI_API_KEY", "")
-        self.openai_key = os.getenv("OPENAI_API_KEY", "")
+    provider = "ollama"
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        model: str | None = None,
+        enabled: bool | None = None,
+        connect_timeout: float = 1.0,
+        read_timeout: float | None = None,
+        max_response_bytes: int = 65536,
+        http_session: requests.Session | None = None,
+    ) -> None:
+        self.base_url = self._validate_local_base_url(
+            base_url or os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+        )
+        self.model = (model or os.getenv("OLLAMA_MODEL", "qwen3.5:9b")).strip()
+        read_timeout = (
+            float(os.getenv("OLLAMA_SELECTOR_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT_SECONDS", "60")))
+            if read_timeout is None else read_timeout
+        )
+        if not self.model:
+            raise ValueError("Ollama model must not be empty")
+        if not 0 < connect_timeout <= 10 or not 0 < read_timeout <= 60:
+            raise ValueError("Ollama timeouts are outside the allowed range")
+        if not 1024 <= max_response_bytes <= 1048576:
+            raise ValueError("Ollama response limit is outside the allowed range")
+        self.enabled = self._env_enabled() if enabled is None else enabled
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
+        self.max_response_bytes = max_response_bytes
+        self._session = http_session or requests.Session()
 
     def is_enabled(self) -> bool:
-        return self.enabled and bool(self.gemini_key or self.openai_key or self.provider == "ollama")
+        return self.enabled
 
-    def predict_element(self, image_base64: str, dom_snippet: str, hint_text: str) -> ElementPrediction:
+    def predict_element(
+        self, image_base64: str, dom_snippet: str, hint_text: str,
+    ) -> ElementPrediction:
         if not self.is_enabled():
-            return ElementPrediction(reasoning="AI Fallback disabled or missing API credentials.")
-
-        prompt = (
-            f"Analyze the webpage screenshot and DOM snippet to locate the following element: '{hint_text}'.\n"
-            f"DOM Snippet:\n{dom_snippet}\n\n"
-            f"Respond ONLY with a JSON object in this exact format: "
-            f'{{"selector": "css_or_xpath_selector", "confidence": 0.95, "reasoning": "brief explanation"}}'
-        )
-
+            return ElementPrediction(reasoning="Ollama selector fallback is disabled")
+        if not image_base64 or not dom_snippet or not hint_text.strip():
+            return ElementPrediction(reasoning="Selector evidence is incomplete")
         try:
-            if self.provider == "gemini" and self.gemini_key:
-                return self._call_gemini_api(prompt, image_base64)
-            elif self.provider == "openai" and self.openai_key:
-                return self._call_openai_api(prompt, image_base64)
-            else:
-                return ElementPrediction(reasoning=f"Unsupported or unconfigured provider '{self.provider}'.")
-        except Exception as e:
-            logger.warning(f"AI Vision Client error: {str(e)}")
-            return ElementPrediction(reasoning=f"AI Vision Client exception: {str(e)}")
-
-    def _call_gemini_api(self, prompt: str, image_base64: str) -> ElementPrediction:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.gemini_key}"
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": "image/png", "data": image_base64}}
-                ]
-            }]
-        }
-        res = requests.post(url, json=payload, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        
-        candidates = data.get("candidates", [])
-        if candidates and "content" in candidates[0]:
-            text_response = candidates[0]["content"]["parts"][0].get("text", "")
-            return self._parse_json_prediction(text_response)
-            
-        return ElementPrediction(reasoning="Empty response candidate from Gemini Vision API.")
-
-    def _call_openai_api(self, prompt: str, image_base64: str) -> ElementPrediction:
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {self.openai_key}"}
-        payload = {
-            "model": "gpt-4o-mini",
-            "response_format": {"type": "json_object"},
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}}
-                ]
-            }]
-        }
-        res = requests.post(url, headers=headers, json=payload, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        text_response = data["choices"][0]["message"]["content"]
-        return self._parse_json_prediction(text_response)
-
-    def _parse_json_prediction(self, text: str) -> ElementPrediction:
-        # Strip markdown json code block fences if present
-        clean_text = text.strip()
-        if clean_text.startswith("```"):
-            clean_text = clean_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-
-        try:
-            parsed = json.loads(clean_text)
-            return ElementPrediction(
-                selector=parsed.get("selector"),
-                confidence=float(parsed.get("confidence", 0.0)),
-                reasoning=parsed.get("reasoning", "")
+            response = self._session.post(
+                f"{self.base_url}/api/chat",
+                json=self._build_payload(image_base64, dom_snippet, hint_text),
+                timeout=(self.connect_timeout, self.read_timeout),
+                allow_redirects=False,
             )
-        except Exception:
-            return ElementPrediction(reasoning=f"Failed to parse LLM response: {text[:100]}")
+            if response.is_redirect:
+                return ElementPrediction(reasoning="Ollama redirect refused")
+            if response.status_code >= 400:
+                return ElementPrediction(reasoning=f"Ollama HTTP error {response.status_code}")
+            if isinstance(response.content, bytes) and len(response.content) > self.max_response_bytes:
+                return ElementPrediction(reasoning="Ollama response too large")
+            message = response.json().get("message")
+            if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+                raise ValueError("Missing Ollama message content")
+            return ElementPrediction.model_validate_json(message["content"])
+        except requests.Timeout:
+            return ElementPrediction(reasoning="Ollama selector request timed out")
+        except requests.RequestException:
+            return ElementPrediction(reasoning="Ollama selector request failed")
+        except (ValueError, TypeError):
+            logger.warning("Ollama selector returned an invalid structured response")
+            return ElementPrediction(reasoning="Invalid Ollama selector response")
+
+    def _build_payload(
+        self, image_base64: str, dom_snippet: str, hint_text: str,
+    ) -> dict[str, object]:
+        prompt = (
+            "Locate the requested webpage element using the screenshot and DOM. "
+            "Return a usable CSS selector prefixed with css: or XPath prefixed with xpath:. "
+            "Return null selector when evidence is insufficient. "
+            f"Target: {hint_text.strip()}\nDOM snippet:\n{dom_snippet}"
+        )
+        return {
+            "model": self.model,
+            "stream": False,
+            "think": False,
+            "format": ElementPrediction.model_json_schema(),
+            "options": {"temperature": 0, "num_predict": 256},
+            "messages": [{"role": "user", "content": prompt, "images": [image_base64]}],
+        }
+
+    @staticmethod
+    def _env_enabled() -> bool:
+        value = os.getenv("ENABLE_AI_FALLBACK", "true").strip().lower()
+        return value in {"true", "1", "yes"}
+
+    @staticmethod
+    def _validate_local_base_url(base_url: str) -> str:
+        parsed = urlparse(base_url.strip())
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+            "127.0.0.1", "localhost", "::1",
+        }:
+            raise ValueError("OLLAMA_BASE_URL must use a loopback host")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("OLLAMA_BASE_URL must not contain credentials, query, or fragment")
+        if parsed.path not in {"", "/"}:
+            raise ValueError("OLLAMA_BASE_URL must not contain a path")
+        return base_url.strip().rstrip("/")

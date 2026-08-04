@@ -57,18 +57,21 @@ def login_facebook(
         return LoginStatus.LOGGED_IN
 
     yield log_func("Entering Facebook credentials...")
-    email_input = page.find("css:input[name='email']", timeout=5)
-    pass_input = page.find("css:input[name='pass']", timeout=5)
-    if not email_input or not pass_input:
-        email_input = page.find("#email", timeout=2)
-        pass_input = page.find("#pass", timeout=2)
+    email_input = page.find_first(
+        "css:input[name='email']", "#email", "css:input[type='email']", timeout=1.5,
+    )
+    pass_input = page.find_first(
+        "css:input[name='pass']", "#pass", "css:input[type='password']", timeout=1.5,
+    )
     if not email_input:
+        yield log_func("Facebook email input changed; asking local AI for a selector...")
         email_input = page.find_with_ai_fallback(
-            "css:input[name='email']", "Facebook email or phone input", timeout=2
+            "css:input[name='email']", "Facebook email or phone input", timeout=0.1,
         )
     if not pass_input:
+        yield log_func("Facebook password input changed; asking local AI for a selector...")
         pass_input = page.find_with_ai_fallback(
-            "css:input[name='pass']", "Facebook password input", timeout=2
+            "css:input[name='pass']", "Facebook password input", timeout=0.1,
         )
     if not email_input or not pass_input:
         yield log_func("Facebook credential inputs were not found.")
