@@ -19,7 +19,11 @@ Concrete adapter implementations are in:
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
+
+from app.domain.models import Platform
+from app.infrastructure.automation.semantic_types import SemanticIntent, SemanticResolution
 
 
 class AutomationElement(ABC):
@@ -155,6 +159,15 @@ class AutomationPage(ABC):
     @abstractmethod
     def capture_screenshot_base64(self, mask_sensitive: bool = True) -> str:
         """Capture the current viewport as base64 PNG, masking editable fields by default."""
+
+    @abstractmethod
+    def find_semantic(
+        self,
+        platform: Platform,
+        intent: SemanticIntent,
+        cancellation_event: threading.Event | None = None,
+    ) -> SemanticResolution[AutomationElement]:
+        """Resolve a browser element by stable platform intent."""
 
     @abstractmethod
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:

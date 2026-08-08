@@ -4,6 +4,7 @@
 import logging
 import os
 from abc import ABC, abstractmethod
+from enum import Enum
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -13,10 +14,25 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-class ElementPrediction(BaseModel):
-    """Structured selector prediction returned by the local vision model."""
+class SelectorPredictionFailure(str, Enum):
+    """Machine-readable reason that selector prediction did not succeed."""
 
-    model_config = ConfigDict(extra="forbid")
+    NONE = "none"
+    DISABLED = "disabled"
+    INCOMPLETE_EVIDENCE = "incomplete_evidence"
+    TIMEOUT = "timeout"
+    UNAVAILABLE = "unavailable"
+    HTTP_CLIENT_ERROR = "http_client_error"
+    HTTP_SERVER_ERROR = "http_server_error"
+    REDIRECT_REFUSED = "redirect_refused"
+    RESPONSE_TOO_LARGE = "response_too_large"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class _WireElementPrediction(BaseModel):
+    """Schema the model is allowed to produce."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     selector: str | None = Field(default=None, max_length=500)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -32,6 +48,12 @@ class ElementPrediction(BaseModel):
             if normalized.startswith(prefix):
                 return prefix + normalized[len(prefix):].strip()
         return normalized
+
+
+class ElementPrediction(_WireElementPrediction):
+    """Selector prediction enriched with a trusted internal failure code."""
+
+    failure_code: SelectorPredictionFailure = SelectorPredictionFailure.NONE
 
 
 class VisionClient(ABC):
@@ -92,9 +114,13 @@ class MultimodalVisionClient(VisionClient):
         self, image_base64: str, dom_snippet: str, hint_text: str,
     ) -> ElementPrediction:
         if not self.is_enabled():
-            return ElementPrediction(reasoning="Ollama selector fallback is disabled")
+            return self._failure(
+                SelectorPredictionFailure.DISABLED, "Ollama selector fallback is disabled",
+            )
         if not image_base64 or not dom_snippet or not hint_text.strip():
-            return ElementPrediction(reasoning="Selector evidence is incomplete")
+            return self._failure(
+                SelectorPredictionFailure.INCOMPLETE_EVIDENCE, "Selector evidence is incomplete",
+            )
         try:
             response = self._session.post(
                 f"{self.base_url}/api/chat",
@@ -103,22 +129,35 @@ class MultimodalVisionClient(VisionClient):
                 allow_redirects=False,
             )
             if response.is_redirect:
-                return ElementPrediction(reasoning="Ollama redirect refused")
-            if response.status_code >= 400:
-                return ElementPrediction(reasoning=f"Ollama HTTP error {response.status_code}")
+                return self._failure(SelectorPredictionFailure.REDIRECT_REFUSED, "Ollama redirect refused")
+            if 400 <= response.status_code < 500:
+                return self._failure(
+                    SelectorPredictionFailure.HTTP_CLIENT_ERROR,
+                    f"Ollama HTTP error {response.status_code}",
+                )
+            if response.status_code >= 500:
+                return self._failure(
+                    SelectorPredictionFailure.HTTP_SERVER_ERROR, f"Ollama HTTP error {response.status_code}",
+                )
             if isinstance(response.content, bytes) and len(response.content) > self.max_response_bytes:
-                return ElementPrediction(reasoning="Ollama response too large")
+                return self._failure(
+                    SelectorPredictionFailure.RESPONSE_TOO_LARGE, "Ollama response too large",
+                )
             message = response.json().get("message")
             if not isinstance(message, dict) or not isinstance(message.get("content"), str):
                 raise ValueError("Missing Ollama message content")
-            return ElementPrediction.model_validate_json(message["content"])
+            wire = _WireElementPrediction.model_validate_json(message["content"])
+            return ElementPrediction(**wire.model_dump())
         except requests.Timeout:
-            return ElementPrediction(reasoning="Ollama selector request timed out")
-        except requests.RequestException:
-            return ElementPrediction(reasoning="Ollama selector request failed")
+            return self._failure(SelectorPredictionFailure.TIMEOUT, "Ollama selector request timed out")
         except (ValueError, TypeError):
             logger.warning("Ollama selector returned an invalid structured response")
-            return ElementPrediction(reasoning="Invalid Ollama selector response")
+            return self._failure(
+                SelectorPredictionFailure.INVALID_RESPONSE,
+                "Invalid Ollama selector response",
+            )
+        except requests.RequestException:
+            return self._failure(SelectorPredictionFailure.UNAVAILABLE, "Ollama selector request failed")
 
     def _build_payload(
         self, image_base64: str, dom_snippet: str, hint_text: str,
@@ -133,10 +172,14 @@ class MultimodalVisionClient(VisionClient):
             "model": self.model,
             "stream": False,
             "think": False,
-            "format": ElementPrediction.model_json_schema(),
+            "format": _WireElementPrediction.model_json_schema(),
             "options": {"temperature": 0, "num_predict": 256},
             "messages": [{"role": "user", "content": prompt, "images": [image_base64]}],
         }
+
+    @staticmethod
+    def _failure(code: SelectorPredictionFailure, reasoning: str) -> ElementPrediction:
+        return ElementPrediction(failure_code=code, reasoning=reasoning)
 
     @staticmethod
     def _env_enabled() -> bool:

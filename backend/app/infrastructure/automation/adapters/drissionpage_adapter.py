@@ -10,11 +10,15 @@ underlying ChromiumPage and ChromiumElement objects.
 from __future__ import annotations
 
 import base64
+import threading
 from typing import Any
 
 from DrissionPage import ChromiumPage
 
+from app.domain.models import Platform
 from app.infrastructure.automation.page_wrapper import AutomationElement, AutomationPage
+from app.infrastructure.automation.semantic_locator import SemanticLocatorResolver
+from app.infrastructure.automation.semantic_types import SemanticIntent, SemanticResolution
 from app.infrastructure.automation.adapters.sensitive_mask import (
     MASK_SENSITIVE_SCRIPT,
     REMOVE_SENSITIVE_MASK_SCRIPT,
@@ -95,8 +99,11 @@ class DrissionPageElement(AutomationElement):
 class DrissionPageWrapper(AutomationPage):
     """Wraps a DrissionPage ChromiumPage as an AutomationPage."""
 
-    def __init__(self, page: ChromiumPage) -> None:
+    def __init__(
+        self, page: ChromiumPage, semantic_resolver: SemanticLocatorResolver | None = None,
+    ) -> None:
         self._page = page
+        self._semantic_resolver = semantic_resolver or SemanticLocatorResolver()
 
     def goto(self, url: str) -> None:
         try:
@@ -156,31 +163,17 @@ class DrissionPageWrapper(AutomationPage):
                 except Exception:
                     pass
 
-    def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> DrissionPageElement | None:
-        element = self.find(selector, timeout=timeout)
-        if element is not None:
-            return element
+    def find_semantic(
+        self, platform: Platform, intent: SemanticIntent,
+        cancellation_event: threading.Event | None = None,
+    ) -> SemanticResolution[AutomationElement]:
+        return self._semantic_resolver.resolve(
+            self, platform, intent, cancellation_event,
+        )
 
-        from app.infrastructure.ai.vision_client import MultimodalVisionClient
-        from app.infrastructure.ai.dom_parser import DOMParser
-
-        vision_client = MultimodalVisionClient()
-        if not vision_client.is_enabled():
-            return None
-
-        try:
-            img_b64 = self.capture_screenshot_base64()
-
-            # Extract DOM snippet
-            dom_snippet = DOMParser.extract_interactable_snippet(self.html)
-
-            # Query Vision LLM for prediction
-            prediction = vision_client.predict_element(img_b64, dom_snippet, hint_text)
-            if prediction.selector:
-                predicted_el = self.find(prediction.selector, timeout=2.0)
-                if predicted_el:
-                    return predicted_el
-        except Exception:
-            pass
-
-        return None
+    def find_with_ai_fallback(
+        self, selector: str, hint_text: str, timeout: float = 5.0,
+    ) -> AutomationElement | None:
+        return self._semantic_resolver.resolve_legacy(
+            self, selector, hint_text, timeout,
+        )

@@ -7,11 +7,15 @@ import unittest
 from unittest.mock import patch
 
 from app.domain.models import LoginStatus
+from app.infrastructure.automation.locators import get_locator_spec
 from app.infrastructure.automation.page_wrapper import AutomationElement, AutomationPage
 from app.infrastructure.automation.platforms.facebook import login_facebook
 from app.infrastructure.automation.platforms.tiktok import login_tiktok
 from app.infrastructure.automation.platforms.twitter import login_twitter
 from app.infrastructure.automation.platforms.youtube import login_youtube
+from app.infrastructure.automation.semantic_types import (
+    ResolutionFailure, ResolutionSource, SemanticResolution,
+)
 
 
 class FakeElement(AutomationElement):
@@ -43,6 +47,17 @@ class FakePage(AutomationPage):
 
     def find_first(self, *selectors: str, timeout: float = 5.0) -> AutomationElement | None:
         return next((self.elements[selector] for selector in selectors if selector in self.elements), None)
+
+    def find_semantic(self, platform, intent, cancellation_event=None):
+        if cancellation_event and cancellation_event.is_set():
+            return SemanticResolution(
+                None, ResolutionSource.NONE, ResolutionFailure.CANCELLED,
+            )
+        spec = get_locator_spec(platform, intent)
+        element = self.find_first(*spec.selectors, timeout=spec.timeout_seconds) if spec else None
+        if element:
+            return SemanticResolution(element, ResolutionSource.REGISTRY, ResolutionFailure.NONE)
+        return SemanticResolution(None, ResolutionSource.NONE, ResolutionFailure.NOT_FOUND)
 
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
         return self.find(selector, timeout)

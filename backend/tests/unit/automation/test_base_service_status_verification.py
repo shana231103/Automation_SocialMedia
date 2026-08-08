@@ -15,6 +15,9 @@ from app.infrastructure.automation.actions.action_base import AutomationAction
 from app.infrastructure.automation.base_service import BaseAutomationService
 from app.infrastructure.automation.login_status_verification import LoginStatusVerificationCoordinator
 from app.infrastructure.automation.page_wrapper import AutomationPage
+from app.infrastructure.automation.semantic_types import (
+    ResolutionFailure, ResolutionSource, SemanticResolution,
+)
 
 
 class DummyLoginAction(AutomationAction):
@@ -51,6 +54,11 @@ class FakePage(AutomationPage):
 
     def find_first(self, *selectors: str, timeout: float = 5.0):
         return None
+
+    def find_semantic(self, platform, intent, cancellation_event=None):
+        return SemanticResolution(
+            None, ResolutionSource.NONE, ResolutionFailure.NOT_FOUND,
+        )
 
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0):
         return None

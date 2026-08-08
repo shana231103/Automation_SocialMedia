@@ -4,8 +4,12 @@
 import unittest
 from typing import Generator, Any, List
 from app.domain.models import LoginStatus
+from app.infrastructure.automation.locators import get_locator_spec
 from app.infrastructure.automation.page_wrapper import AutomationPage, AutomationElement
 from app.infrastructure.automation.platforms.facebook import login_facebook
+from app.infrastructure.automation.semantic_types import (
+    ResolutionFailure, ResolutionSource, SemanticResolution,
+)
 
 
 class MockElement(AutomationElement):
@@ -41,6 +45,7 @@ class MockPage(AutomationPage):
         self.elements = {}
         self.find_first_calls = []
         self.ai_calls = []
+        self.semantic_calls = []
 
     def goto(self, url: str) -> None:
         self._url = url
@@ -55,6 +60,14 @@ class MockPage(AutomationPage):
             if selector in self.elements:
                 return self.elements[selector]
         return None
+
+    def find_semantic(self, platform, intent, cancellation_event=None):
+        self.semantic_calls.append((platform, intent))
+        spec = get_locator_spec(platform, intent)
+        element = self.find_first(*spec.selectors, timeout=spec.timeout_seconds) if spec else None
+        if element:
+            return SemanticResolution(element, ResolutionSource.REGISTRY, ResolutionFailure.NONE)
+        return SemanticResolution(None, ResolutionSource.NONE, ResolutionFailure.NOT_FOUND)
 
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0) -> AutomationElement | None:
         self.ai_calls.append((selector, hint_text, timeout))
@@ -165,7 +178,7 @@ class TestFacebookLoginScript(unittest.TestCase):
 
 
 
-    def test_missing_inputs_use_short_probes_and_report_ai_progress(self):
+    def test_missing_inputs_report_manual_intervention(self):
         generator = login_facebook(self.page, "user", "pass", self.log_func)
         with self.assertRaises(StopIteration) as stopped:
             while True:
@@ -174,12 +187,10 @@ class TestFacebookLoginScript(unittest.TestCase):
         self.assertEqual(stopped.exception.value, LoginStatus.LOGGED_OUT)
         credential_calls = self.page.find_first_calls[-2:]
         self.assertEqual([call[1] for call in credential_calls], [1.5, 1.5])
-        self.assertEqual([call[2] for call in self.page.ai_calls], [0.1, 0.1])
+        self.assertEqual(len(self.page.semantic_calls), 2)
         self.assertIn(
-            "Facebook email input changed; asking local AI for a selector...", self.logs,
-        )
-        self.assertIn(
-            "Facebook password input changed; asking local AI for a selector...", self.logs,
+            "Facebook credential inputs could not be resolved; manual intervention is required.",
+            self.logs,
         )
 
 if __name__ == "__main__":

@@ -5,9 +5,12 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Dict, Generator
 
-from app.domain.models import LoginStatus
+from app.domain.models import LoginStatus, Platform
 from app.infrastructure.automation.page_wrapper import AutomationPage
 from app.infrastructure.automation.platforms._helpers import host_and_path, wait_or_cancel
+from app.infrastructure.automation.semantic_types import (
+    ResolutionFailure, ResolutionSource, SemanticIntent,
+)
 
 
 def _is_facebook_authenticated(page: AutomationPage, url: str) -> bool:
@@ -42,6 +45,16 @@ def _cancelled(cancellation_event: threading.Event | None, seconds: float) -> bo
     return wait_or_cancel(seconds, cancellation_event)
 
 
+def _resolution_message(label: str, resolution: Any) -> str:
+    if resolution.source == ResolutionSource.AI:
+        return f"Facebook {label} resolved by local AI in {resolution.ai_attempts} attempt(s)."
+    if resolution.source == ResolutionSource.REGISTRY:
+        if resolution.ai_attempts:
+            return f"Facebook {label} resolved by deterministic fallback after AI attempts."
+        return f"Facebook {label} resolved by deterministic fallback."
+    return f"Facebook {label} was not resolved after {resolution.ai_attempts} AI attempt(s)."
+
+
 def login_facebook(
     page: AutomationPage,
     username: str,
@@ -57,24 +70,26 @@ def login_facebook(
         return LoginStatus.LOGGED_IN
 
     yield log_func("Entering Facebook credentials...")
-    email_input = page.find_first(
-        "css:input[name='email']", "#email", "css:input[type='email']", timeout=1.5,
+    email_resolution = page.find_semantic(
+        Platform.FACEBOOK, SemanticIntent.EMAIL_OR_PHONE_INPUT, cancellation_event,
     )
-    pass_input = page.find_first(
-        "css:input[name='pass']", "#pass", "css:input[type='password']", timeout=1.5,
+    yield log_func(_resolution_message("email input", email_resolution))
+    if email_resolution.failure == ResolutionFailure.CANCELLED:
+        yield log_func("Facebook login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    password_resolution = page.find_semantic(
+        Platform.FACEBOOK, SemanticIntent.PASSWORD_INPUT, cancellation_event,
     )
-    if not email_input:
-        yield log_func("Facebook email input changed; asking local AI for a selector...")
-        email_input = page.find_with_ai_fallback(
-            "css:input[name='email']", "Facebook email or phone input", timeout=0.1,
-        )
-    if not pass_input:
-        yield log_func("Facebook password input changed; asking local AI for a selector...")
-        pass_input = page.find_with_ai_fallback(
-            "css:input[name='pass']", "Facebook password input", timeout=0.1,
-        )
+    yield log_func(_resolution_message("password input", password_resolution))
+    if password_resolution.failure == ResolutionFailure.CANCELLED:
+        yield log_func("Facebook login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    email_input = email_resolution.element
+    pass_input = password_resolution.element
     if not email_input or not pass_input:
-        yield log_func("Facebook credential inputs were not found.")
+        yield log_func(
+            "Facebook credential inputs could not be resolved; manual intervention is required."
+        )
         return LoginStatus.LOGGED_OUT
 
     email_input.input(username)
@@ -86,17 +101,19 @@ def login_facebook(
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
 
-    login_btn = page.find_first(
-        "css:button[name='login']",
-        "css:[data-testid='royal_login_button']",
-        "css:button[type='submit']",
-        "css:input[type='submit']",
-        timeout=3,
+    submit_resolution = page.find_semantic(
+        Platform.FACEBOOK, SemanticIntent.LOGIN_SUBMIT_CONTROL, cancellation_event,
     )
+    yield log_func(_resolution_message("submit control", submit_resolution))
+    if submit_resolution.failure == ResolutionFailure.CANCELLED:
+        yield log_func("Facebook login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    login_btn = submit_resolution.element
     try:
         if login_btn:
             login_btn.click()
         else:
+            yield log_func("Facebook submit control was not resolved; submitting by keyboard.")
             pass_input.press("Enter")
     except Exception:
         if login_btn:

@@ -7,7 +7,9 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from app.infrastructure.ai.dom_parser import DOMParser, InteractableHTMLParser
-from app.infrastructure.ai.vision_client import MultimodalVisionClient
+from app.infrastructure.ai.vision_client import (
+    MultimodalVisionClient, SelectorPredictionFailure,
+)
 
 
 class TestDOMParser(unittest.TestCase):
@@ -50,6 +52,7 @@ class TestMultimodalVisionClient(unittest.TestCase):
         prediction = client.predict_element("image", "<input>", "Username input")
         self.assertFalse(client.is_enabled())
         self.assertIsNone(prediction.selector)
+        self.assertEqual(prediction.failure_code, SelectorPredictionFailure.DISABLED)
         session.post.assert_not_called()
 
     def test_defaults_to_enabled_local_qwen_model(self):
@@ -82,18 +85,26 @@ class TestMultimodalVisionClient(unittest.TestCase):
 
         self.assertEqual(prediction.selector, "css:#email_id")
         self.assertEqual(prediction.confidence, 0.95)
+        self.assertEqual(prediction.failure_code, SelectorPredictionFailure.NONE)
         call = session.post.call_args
         self.assertEqual(call.kwargs["json"]["model"], "qwen3.5:9b")
         self.assertFalse(call.kwargs["json"]["think"])
         self.assertEqual(call.kwargs["json"]["options"]["num_predict"], 256)
         self.assertEqual(call.kwargs["json"]["messages"][0]["images"], ["image-data"])
+        self.assertNotIn(
+            "failure_code", call.kwargs["json"]["format"]["properties"],
+        )
         self.assertFalse(call.kwargs["allow_redirects"])
 
     def test_timeout_and_invalid_response_fail_safely(self):
         timeout_session = MagicMock()
         timeout_session.post.side_effect = requests.Timeout()
         client = MultimodalVisionClient(enabled=True, http_session=timeout_session)
-        self.assertIsNone(client.predict_element("image", "<input>", "Email").selector)
+        timed_out = client.predict_element("image", "<input>", "Email")
+        self.assertEqual(timed_out.failure_code, SelectorPredictionFailure.TIMEOUT)
+        timeout_session.post.side_effect = requests.ConnectionError()
+        unavailable = client.predict_element("image", "<input>", "Email")
+        self.assertEqual(unavailable.failure_code, SelectorPredictionFailure.UNAVAILABLE)
 
         response = MagicMock()
         response.is_redirect = False
@@ -105,7 +116,41 @@ class TestMultimodalVisionClient(unittest.TestCase):
         client = MultimodalVisionClient(enabled=True, http_session=invalid_session)
         prediction = client.predict_element("image", "<input>", "Email")
         self.assertIsNone(prediction.selector)
+        self.assertEqual(prediction.failure_code, SelectorPredictionFailure.INVALID_RESPONSE)
         self.assertIn("Invalid", prediction.reasoning)
+        response.json.side_effect = ValueError("invalid JSON")
+        prediction = client.predict_element("image", "<input>", "Email")
+        self.assertEqual(prediction.failure_code, SelectorPredictionFailure.INVALID_RESPONSE)
+
+    def test_http_redirect_and_size_failures_are_typed(self):
+        cases = (
+            (302, True, b"", SelectorPredictionFailure.REDIRECT_REFUSED),
+            (404, False, b"", SelectorPredictionFailure.HTTP_CLIENT_ERROR),
+            (503, False, b"", SelectorPredictionFailure.HTTP_SERVER_ERROR),
+            (200, False, b"oversized", SelectorPredictionFailure.RESPONSE_TOO_LARGE),
+        )
+        for status, redirect, content, expected in cases:
+            with self.subTest(expected=expected):
+                response = MagicMock(
+                    status_code=status, is_redirect=redirect, content=content,
+                )
+                session = MagicMock()
+                session.post.return_value = response
+                client = MultimodalVisionClient(
+                    enabled=True, http_session=session,
+                    max_response_bytes=1024,
+                )
+                if expected == SelectorPredictionFailure.RESPONSE_TOO_LARGE:
+                    response.content = b"x" * 1025
+                result = client.predict_element("image", "<input>", "Email")
+                self.assertEqual(result.failure_code, expected)
+
+    def test_incomplete_evidence_is_non_transport_failure(self):
+        client = MultimodalVisionClient(enabled=True, http_session=MagicMock())
+        result = client.predict_element("", "<input>", "Email")
+        self.assertEqual(
+            result.failure_code, SelectorPredictionFailure.INCOMPLETE_EVIDENCE,
+        )
 
 
 if __name__ == "__main__":

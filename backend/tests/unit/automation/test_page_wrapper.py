@@ -4,10 +4,12 @@
 import unittest
 from unittest.mock import MagicMock
 
+from app.domain.models import Platform
 from app.infrastructure.automation.adapters.drissionpage_adapter import _to_drission_selector
 from app.infrastructure.automation.adapters.playwright_adapter import _to_playwright_selector
 from app.infrastructure.automation.adapters.drissionpage_adapter import DrissionPageWrapper
 from app.infrastructure.automation.adapters.playwright_adapter import PlaywrightPageWrapper
+from app.infrastructure.automation.semantic_types import SemanticIntent
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
@@ -56,6 +58,36 @@ class TestPageWrapperTimeouts(unittest.TestCase):
         mock_page.ele.assert_any_call("css:#el1", timeout=1.0)
         mock_page.ele.assert_any_call("css:#el2", timeout=1.0)
         mock_page.ele.assert_any_call("css:#el3", timeout=1.0)
+
+
+class TestSemanticResolverDelegation(unittest.TestCase):
+    def test_both_adapters_delegate_semantic_resolution(self):
+        for wrapper_type in (DrissionPageWrapper, PlaywrightPageWrapper):
+            with self.subTest(wrapper=wrapper_type.__name__):
+                resolver = MagicMock()
+                expected = object()
+                resolver.resolve.return_value = expected
+                wrapper = wrapper_type(MagicMock(), resolver)
+                result = wrapper.find_semantic(
+                    Platform.FACEBOOK, SemanticIntent.PASSWORD_INPUT,
+                )
+                self.assertIs(result, expected)
+                resolver.resolve.assert_called_once_with(
+                    wrapper, Platform.FACEBOOK, SemanticIntent.PASSWORD_INPUT, None,
+                )
+
+    def test_both_adapters_delegate_legacy_fallback(self):
+        for wrapper_type in (DrissionPageWrapper, PlaywrightPageWrapper):
+            with self.subTest(wrapper=wrapper_type.__name__):
+                resolver = MagicMock()
+                expected = object()
+                resolver.resolve_legacy.return_value = expected
+                wrapper = wrapper_type(MagicMock(), resolver)
+                result = wrapper.find_with_ai_fallback("css:#old", "target", 1.25)
+                self.assertIs(result, expected)
+                resolver.resolve_legacy.assert_called_once_with(
+                    wrapper, "css:#old", "target", 1.25,
+                )
 
 
 class TestScreenshotCapture(unittest.TestCase):

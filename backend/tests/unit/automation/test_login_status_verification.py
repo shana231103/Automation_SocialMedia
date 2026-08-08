@@ -18,6 +18,9 @@ from app.infrastructure.automation.login_status_reporting import (
     decision_to_event_metadata, decision_to_log_message,
 )
 from app.infrastructure.automation.page_wrapper import AutomationPage
+from app.infrastructure.automation.semantic_types import (
+    ResolutionFailure, ResolutionSource, SemanticResolution,
+)
 
 
 class FakePage(AutomationPage):
@@ -32,6 +35,11 @@ class FakePage(AutomationPage):
 
     def find_first(self, *selectors: str, timeout: float = 5.0):
         return None
+
+    def find_semantic(self, platform, intent, cancellation_event=None):
+        return SemanticResolution(
+            None, ResolutionSource.NONE, ResolutionFailure.NOT_FOUND,
+        )
 
     def find_with_ai_fallback(self, selector: str, hint_text: str, timeout: float = 5.0):
         return None
