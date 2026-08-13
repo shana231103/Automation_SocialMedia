@@ -47,7 +47,7 @@ def _cancelled(cancellation_event: threading.Event | None, seconds: float) -> bo
 
 def _resolution_message(label: str, resolution: Any) -> str:
     if resolution.source == ResolutionSource.AI:
-        return f"Facebook {label} resolved by local AI in {resolution.ai_attempts} attempt(s)."
+        return f"Facebook {label} resolved by the configured AI provider in {resolution.ai_attempts} attempt(s)."
     if resolution.source == ResolutionSource.REGISTRY:
         if resolution.ai_attempts:
             return f"Facebook {label} resolved by deterministic fallback after AI attempts."

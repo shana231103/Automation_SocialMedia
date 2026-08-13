@@ -1,32 +1,30 @@
 import os
 import json
-from dataclasses import asdict
+import asyncio
+import threading
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.infrastructure.database.connection import get_db, SessionLocal
 from app.infrastructure.database.repositories import SqlAlchemyAccountRepository, SqlAlchemyLoginHistoryRepository
 from app.infrastructure.automation.drission_page import DrissionPageAutomationService
-from app.infrastructure.automation.login_status_verification import LoginStatusVerificationCoordinator
 from app.application.interfaces import AutomationService
 from app.application.use_cases.manage_accounts import GetAccountsUseCase, CreateAccountUseCase, DeleteAccountUseCase
 from app.application.use_cases.run_login import RunLoginUseCase
 from app.application.use_cases.view_history import GetLoginHistoryUseCase, ClearLoginHistoryUseCase
 from app.presentation.schemas import AccountCreate, AccountResponse, LoginHistoryResponse
+from app.presentation.ai_routes import router as ai_router
 
 router = APIRouter(prefix="/api")
-
-def get_status_verification_coordinator() -> LoginStatusVerificationCoordinator:
-    return LoginStatusVerificationCoordinator.from_env()
+router.include_router(ai_router)
 
 def get_automation_service() -> AutomationService:
     provider = os.getenv("AUTOMATION_PROVIDER", "drissionpage").lower()
-    status_verification = get_status_verification_coordinator()
     if provider == "playwright":
         from app.infrastructure.automation.playwright_service import PlaywrightAutomationService
-        return PlaywrightAutomationService(status_verification=status_verification)
-    return DrissionPageAutomationService(status_verification=status_verification)
+        return PlaywrightAutomationService()
+    return DrissionPageAutomationService()
 
 
 @router.get("/accounts", response_model=List[AccountResponse])
@@ -71,24 +69,45 @@ def clear_history(db: Session = Depends(get_db)):
     return {"message": "Đã xóa lịch sử thành công"}
 
 @router.get("/run-login/{account_id}")
-def run_login(
-    account_id: int, 
-    db: Session = Depends(get_db),
-    automation_service: AutomationService = Depends(get_automation_service)
-):
-    account_repo = SqlAlchemyAccountRepository(db)
-    history_repo = SqlAlchemyLoginHistoryRepository(db)
-    
-    use_case = RunLoginUseCase(
-        account_repo=account_repo,
-        history_repo=history_repo,
-        automation_service=automation_service
-    )
-    
-    def event_generator():
-        # Iterate over usecase execution yielding SSE data
-        for event in use_case.execute(account_id):
-            yield f"data: {json.dumps(event)}\n\n"
+def run_login(account_id: int, request: Request,
+              db: Session = Depends(get_db),
+              automation_service: AutomationService = Depends(get_automation_service)):
+    del db
+    async def event_generator():
+        cancellation = threading.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def run_worker() -> None:
+            session = SessionLocal()
+            try:
+                use_case = RunLoginUseCase(
+                    SqlAlchemyAccountRepository(session),
+                    SqlAlchemyLoginHistoryRepository(session), automation_service)
+                for event in use_case.execute(account_id, cancellation_event=cancellation):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            except Exception:
+                loop.call_soon_threadsafe(queue.put_nowait, {
+                    "type": "error", "message": "Login worker failed safely."})
+            finally:
+                session.close()
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        worker = asyncio.create_task(asyncio.to_thread(run_worker))
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=.2)
+                except asyncio.TimeoutError:
+                    continue
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            cancellation.set()
+            await asyncio.gather(worker, return_exceptions=True)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -138,17 +157,3 @@ def batch_login(
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@router.get("/ai/status")
-def get_ai_status():
-    from app.infrastructure.ai.vision_client import MultimodalVisionClient
-    client = MultimodalVisionClient()
-
-    status_health = get_status_verification_coordinator().get_status()
-    return {
-        "enabled": client.is_enabled(),
-        "provider": client.provider,
-        "model": client.model,
-        "status_verification": asdict(status_health),
-    }

@@ -6,7 +6,7 @@ from app.application.interfaces import BrowserContextManager
 from app.infrastructure.automation.adapters import PlaywrightPageWrapper
 from app.infrastructure.automation.playwright_browser import GemLoginPlaywrightBrowser
 from app.infrastructure.automation.base_service import BaseAutomationService
-from app.infrastructure.automation.login_status_verification import LoginStatusVerificationCoordinator
+from app.infrastructure.ai.factory import get_ai_composition
 
 
 def default_browser_manager_factory(profile_key: str, profile_name: str | None = None) -> BrowserContextManager:
@@ -28,12 +28,12 @@ class PlaywrightAutomationService(BaseAutomationService):
     def __init__(
         self,
         browser_manager_factory: Callable[[str, str | None], BrowserContextManager] | None = None,
-        status_verification: LoginStatusVerificationCoordinator | None = None,
     ):
+        _config, runtime, context_factory = get_ai_composition()
         super().__init__(
             browser_manager_factory=browser_manager_factory or default_browser_manager_factory,
             page_wrapper_class=PlaywrightPageWrapper,
-            status_verification=status_verification or LoginStatusVerificationCoordinator.from_env(),
+            ai_runtime=runtime, context_factory=context_factory,
         )
 
 

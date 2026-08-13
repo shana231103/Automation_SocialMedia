@@ -1,146 +1,60 @@
 # Automation Social Media — Backend
 
-Backend FastAPI dùng để quản lý tài khoản và kiểm tra trạng thái đăng nhập Facebook, YouTube, TikTok và X (Twitter) qua trình duyệt GemLogin. Hệ thống hỗ trợ DrissionPage hoặc Playwright, stream tiến trình bằng Server-Sent Events (SSE), chạy nhiều tài khoản theo batch và lưu lịch sử vào PostgreSQL.
+FastAPI backend quản lý tài khoản và tự động kiểm tra đăng nhập Facebook, YouTube, TikTok và X qua GemLogin. Hệ thống hỗ trợ DrissionPage hoặc Playwright, SSE cho đăng nhập đơn/batch, và AI từ xa qua Gemini hoặc OpenAI theo cơ chế opt-in.
 
-## Tính năng chính
-
-- CRUD tài khoản mạng xã hội và gán `gemlogin_profile_name` riêng cho từng tài khoản.
-- Đăng nhập đơn hoặc batch, giới hạn số phiên chạy đồng thời và stream log thời gian thực bằng SSE.
-- Kiến trúc driver-agnostic: cùng một platform flow hoạt động với DrissionPage và Playwright.
-- AI selector fallback qua Ollama local (`qwen3.5:9b`) khi selector tĩnh của ô đăng nhập không còn phù hợp.
-- AI status verification ghi rõ dự đoán, độ tin cậy, lý do, bằng chứng hình ảnh/DOM và mã lỗi fallback.
-- Phân loại trạng thái `logged in`, `logged out`, `checkpoint` và `dead` bằng hostname/path cùng tín hiệu UI cụ thể.
-- Cooperative cancellation: phiên đang chờ có thể dừng sớm khi client đóng kết nối batch.
-- Unit test không yêu cầu PostgreSQL hoặc GemLogin thật.
-
-> AI chỉ hỗ trợ tìm selector và đánh giá trạng thái. Hệ thống không tự giải CAPTCHA, 2FA hoặc bước xác minh bảo mật; người dùng vẫn phải xử lý thủ công.
-
-## Công nghệ
-
-- Python 3.11+
-- FastAPI và Uvicorn
-- SQLAlchemy 2, PostgreSQL và psycopg 3
-- DrissionPage hoặc Playwright
-- Vue 3 frontend
-- Ollama local với model vision `qwen3.5:9b`
-
-## Cấu trúc chính
-
-```text
-backend/
-├── app/
-│   ├── application/
-│   │   ├── interfaces.py
-│   │   └── use_cases/
-│   ├── domain/
-│   ├── infrastructure/
-│   │   ├── ai/                    # DOM parser và AI selector fallback
-│   │   ├── automation/
-│   │   │   ├── actions/           # Action registry và LoginAction
-│   │   │   ├── adapters/          # Adapter DrissionPage/Playwright
-│   │   │   ├── platforms/         # Facebook, TikTok, X và YouTube
-│   │   │   ├── base_service.py
-│   │   │   └── *_browser.py
-│   │   └── database/
-│   ├── presentation/              # FastAPI routes và Pydantic schemas
-│   └── main.py
-├── tests/unit/
-├── requirements.txt
-├── create_db.py
-└── test_automation.py
-```
-
-## Cài đặt trên Windows PowerShell
-
-Từ thư mục `backend`:
+## Cài đặt
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m playwright install chromium
 ```
 
-Nếu PowerShell chặn script kích hoạt, có thể bỏ qua bước activate và gọi trực tiếp `.venv\Scripts\python.exe` trong các lệnh bên dưới.
-
-## Cấu hình
-
-Tạo `backend/.env` và không commit file này:
-
-```env
-AUTOMATION_PROVIDER=drissionpage
-
-DATABASE_URL=postgresql+psycopg://postgres:password@localhost:5432/social_automation
-
-GEMLOGIN_API_URL=http://127.0.0.1:1010/api
-GEMLOGIN_PROFILE_NAME=default
-
-MAX_CONCURRENT_LOGINS=3
-MAX_BATCH_SIZE=100
-
-ENABLE_AI_FALLBACK=true
-ENABLE_AI_STATUS_VERIFICATION=true
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen3.5:9b
-OLLAMA_TIMEOUT_SECONDS=60
-OLLAMA_SELECTOR_TIMEOUT_SECONDS=20
-```
-
-Giá trị `AUTOMATION_PROVIDER` hợp lệ là `drissionpage` hoặc `playwright`. Ollama phải chạy cục bộ tại `OLLAMA_BASE_URL` và đã tải model `OLLAMA_MODEL`. Không cấu hình API key hoặc endpoint AI bên ngoài.
-
-## Khởi tạo database
+Sao chép `backend/.env.example` thành `backend/.env`, điền cấu hình database/GemLogin, rồi chạy:
 
 ```powershell
 python create_db.py
-```
-
-## Chạy backend
-
-```powershell
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Dùng `python -m uvicorn` thay vì gọi `uvicorn` trực tiếp để bảo đảm server chạy bằng đúng Python trong virtual environment.
+Swagger UI nằm tại `http://127.0.0.1:8000/docs`. API không có lớp xác thực riêng, vì vậy chỉ nên chạy trên máy cá nhân hoặc mạng nội bộ được bảo vệ.
 
-- API: `http://127.0.0.1:8000/api`
-- Swagger UI: `http://127.0.0.1:8000/docs`
+## AI đa nhà cung cấp
+
+AI mặc định tắt (`AI_ENABLED=false`), nên cấu hình mặc định không phát sinh request, chi phí hay phụ thuộc vào dịch vụ bên ngoài. Khi bật, chọn đúng một `AI_PROVIDER=gemini|openai`; hệ thống chỉ đọc API key của provider đã chọn và không tự động chuyển sang provider khác khi lỗi.
+
+- `semantic`: Gemini hoặc OpenAI hỗ trợ tìm selector và đánh giá trạng thái cuối. AI lỗi hoặc cấu hình sai sẽ suy giảm an toàn về selector/status xác định sẵn.
+- `/api/ai/status`: trả về health/capability trung lập, không gọi model và không lộ secret.
+
+Ảnh chụp đã che trường nhạy cảm, URL đã loại credential/query/fragment và DOM không chứa giá trị form mới được gửi tới provider. Username/password không được đưa vào prompt hoặc lịch sử model. Dữ liệu vẫn được xử lý từ xa theo điều khoản của provider và có thể phát sinh chi phí token; hãy dùng key giới hạn quyền và ngân sách.
+
+Gemini và OpenAI chỉ đưa ra kết quả có cấu trúc cho selector và trạng thái cuối; provider không điều khiển trình duyệt. CAPTCHA, MFA và security challenge được phân loại theo chính sách xác định sẵn, không được tự động giải hoặc nhập mã xác minh.
+
+## Chuyển từ Ollama
+
+Các biến `OLLAMA_*`, `ENABLE_AI_FALLBACK` và `ENABLE_AI_STATUS_VERIFICATION` không còn kích hoạt AI. Thay bằng `AI_ENABLED`, `AI_PROVIDER`, `AI_LOGIN_STRATEGY`, model và API key tương ứng trong `.env.example`. Runtime không còn phụ thuộc `browser-use` hoặc Ollama.
 
 ## API chính
 
 | Method | Endpoint | Chức năng |
 |---|---|---|
-| `GET` | `/api/accounts` | Danh sách tài khoản |
-| `POST` | `/api/accounts` | Tạo tài khoản |
+| `GET/POST` | `/api/accounts` | Liệt kê/tạo tài khoản |
 | `DELETE` | `/api/accounts/{account_id}` | Xóa tài khoản |
 | `GET` | `/api/history` | Lịch sử đăng nhập |
-| `POST` | `/api/history/clear` | Xóa lịch sử |
-| `GET` | `/api/run-login/{account_id}` | Chạy một tài khoản và stream SSE |
-| `GET` | `/api/batch-login?account_ids=1,2,3` | Chạy batch và stream SSE |
-| `GET` | `/api/ai/status` | Trạng thái AI selector fallback |
+| `GET` | `/api/run-login/{account_id}` | Đăng nhập đơn qua SSE |
+| `GET` | `/api/batch-login?account_ids=1,2` | Đăng nhập batch qua SSE |
+| `GET` | `/api/ai/status` | Trạng thái AI trung lập |
 
-API hiện không có cơ chế xác thực. Chỉ nên chạy trong máy cá nhân hoặc mạng nội bộ được bảo vệ.
+SSE hiện hữu giữ nguyên các event đăng nhập và batch. Mỗi tài khoản vẫn phát đúng một kết quả cuối.
 
 ## Kiểm thử
 
-Chạy toàn bộ unit test từ thư mục `backend`:
+Các unit test dùng fake transport, không cần mạng hoặc credential thật:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-Chạy integration test với database và trình duyệt thật:
-
-```powershell
-python test_automation.py
-```
-
-Integration test yêu cầu PostgreSQL, GemLogin và cấu hình `.env` hợp lệ.
-
-## Quy tắc xác định trạng thái
-
-- `logged in`: hostname/path hợp lệ và/hoặc có UI xác nhận phiên đăng nhập.
-- `checkpoint`: CAPTCHA, 2FA hoặc security challenge cần người dùng xử lý.
-- `dead`: chỉ khi có bằng chứng cụ thể rằng tài khoản bị disabled, suspended hoặc banned.
-- `logged out`: sai thông tin đăng nhập, không tìm thấy tài khoản hoặc hết thời gian mà không có trạng thái xác định.
-
-Không dùng substring chung như `home`, `youtube.com`, `foryou` hoặc `locked` trên toàn bộ URL/HTML để kết luận trạng thái.
+Smoke test từ xa chỉ được chạy thủ công sau khi đặt credential và `RUN_REMOTE_AI_SMOKE_TESTS=true`; không bật cờ này trong CI mặc định. Integration test trình duyệt/database dùng `python test_automation.py` và yêu cầu PostgreSQL cùng GemLogin thật.

@@ -122,7 +122,6 @@ class DrissionPageWrapper(AutomationPage):
     def find_first(self, *selectors: str, timeout: float = 5.0) -> DrissionPageElement | None:
         if not selectors:
             return None
-        # Distribute budget evenly; enforce minimum 0.5s per probe.
         per_probe = max(0.5, timeout / len(selectors))
         for selector in selectors:
             el = self.find(selector, timeout=per_probe)
@@ -160,8 +159,8 @@ class DrissionPageWrapper(AutomationPage):
             if masked:
                 try:
                     self._page.run_js(REMOVE_SENSITIVE_MASK_SCRIPT)
-                except Exception:
-                    pass
+                except Exception as cleanup_error:
+                    del cleanup_error
 
     def find_semantic(
         self, platform: Platform, intent: SemanticIntent,

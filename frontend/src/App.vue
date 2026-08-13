@@ -172,7 +172,6 @@ const runBatch = (selectedIds) => {
     try {
       const data = JSON.parse(event.data)
       const accountId = data.account_id
-      
       if (data.type === 'task_queued') {
         batchStatuses.value[accountId] = 'queued'
         batchLogs.value[accountId].push(`[HỆ THỐNG] Đang trong hàng đợi (giới hạn tối đa 3 tài khoản song song)...`)
@@ -306,6 +305,7 @@ onMounted(() => {
       :summary="batchSummary"
       @close="showBatchSummary = false"
     />
+
   </div>
 </template>
 

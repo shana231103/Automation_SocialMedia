@@ -3,7 +3,7 @@
 
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from app.application.status_verification import StatusVerificationAssessment, StatusVerificationEvidence
+from app.application.ai_login import ProtectedObservation, TerminalAssessment
 from app.domain.models import LoginStatus, Platform
 
 
@@ -24,8 +24,8 @@ _BLOCKED_DOM = ('type="password"', "captcha", "checkpoint", "challenge", "two-fa
 
 
 def may_upgrade_to_logged_in(
-    evidence: StatusVerificationEvidence,
-    assessment: StatusVerificationAssessment,
+    evidence: ProtectedObservation,
+    assessment: TerminalAssessment,
     login_upgrade_threshold: float,
 ) -> bool:
     """Require trusted route and DOM signals before accepting a logged-in upgrade."""
@@ -33,7 +33,7 @@ def may_upgrade_to_logged_in(
         return False
     if assessment.confidence < login_upgrade_threshold:
         return False
-    parsed, dom = urlsplit(evidence.sanitized_url), evidence.dom_snippet.lower()
+    parsed, dom = urlsplit(evidence.redacted_url), evidence.dom_snippet.lower()
     return (
         (parsed.hostname or "").lower() in _HOSTS[evidence.platform]
         and not any(token in parsed.path.lower() for token in _BLOCKED_PATHS)

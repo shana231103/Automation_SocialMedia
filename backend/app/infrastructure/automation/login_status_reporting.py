@@ -1,11 +1,11 @@
 # File: backend/app/infrastructure/automation/login_status_reporting.py
-"""Safe user-facing reporting for AI login-status decisions."""
+"""Secret-safe user-facing reporting for terminal AI decisions."""
 
 from app.application.status_verification import StatusVerificationDecision
 
 
 def decision_to_event_metadata(decision: StatusVerificationDecision) -> dict[str, object]:
-    """Serialize bounded diagnostic fields without raw screenshot or DOM payloads."""
+    """Serialize bounded diagnostics without raw screenshot, DOM, URL, or evidence text."""
     return {
         "outcome": decision.outcome.value,
         "preliminary_status": decision.preliminary_status.value,
@@ -16,24 +16,23 @@ def decision_to_event_metadata(decision: StatusVerificationDecision) -> dict[str
         "model": decision.model,
         "duration_ms": decision.duration_ms,
         "reason": decision.reason,
-        "visual_evidence": list(decision.visual_evidence),
-        "dom_evidence": list(decision.dom_evidence),
+        "visual_evidence_count": len(decision.visual_evidence),
+        "dom_evidence_count": len(decision.dom_evidence),
         "model_agreement": decision.model_agreement,
         "failure_code": decision.failure_code.value if decision.failure_code else None,
     }
 
 
 def decision_to_log_message(decision: StatusVerificationDecision) -> str:
-    """Explain what AI saw and why the deterministic policy chose the final state."""
-    ai_status = decision.ai_status.value if decision.ai_status else "không có kết quả"
-    confidence = f"{decision.confidence:.0%}" if decision.confidence is not None else "không có"
-    visual = "; ".join(decision.visual_evidence) or "không có bằng chứng hình ảnh"
-    dom = "; ".join(decision.dom_evidence) or "không có bằng chứng DOM"
-    failure = f" | Mã lỗi: {decision.failure_code.value}" if decision.failure_code else ""
+    """Explain the policy outcome while exposing only evidence counts."""
+    ai_status = decision.ai_status.value if decision.ai_status else "no AI result"
+    confidence = f"{decision.confidence:.0%}" if decision.confidence is not None else "unknown"
+    evidence = (f"{len(decision.visual_evidence)} visual / "
+                f"{len(decision.dom_evidence)} DOM signals")
+    failure = f" | failure={decision.failure_code.value}" if decision.failure_code else ""
     return (
-        f"AI status verification {decision.outcome.value}: "
+        f"AI terminal assessment {decision.outcome.value}: "
         f"{decision.preliminary_status.value} -> {decision.final_status.value} "
-        f"({decision.duration_ms} ms) | AI dự đoán: {ai_status} | "
-        f"Độ tin cậy: {confidence} | Lý do: {decision.reason or 'không được cung cấp'} | "
-        f"Thấy trên ảnh: {visual} | Thấy trong DOM: {dom}{failure}"
+        f"({decision.duration_ms} ms) | AI={ai_status} | confidence={confidence} | "
+        f"reason={decision.reason or 'not provided'} | evidence={evidence}{failure}"
     )

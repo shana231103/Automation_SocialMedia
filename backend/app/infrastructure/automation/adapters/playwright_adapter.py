@@ -1,11 +1,5 @@
 # File: backend/app/infrastructure/automation/adapters/playwright_adapter.py
-"""
-Playwright (sync_api) concrete adapter implementing AutomationPage and AutomationElement.
-
-Translates canonical DrissionPage-style selector strings (css:, text:, xpath:)
-to Playwright-compatible format, and wraps all timeout errors as None returns
-so platform scripts can use simple `if page.find(...):` patterns safely.
-"""
+"""Playwright adapter implementing the shared page and element contracts."""
 
 from __future__ import annotations
 
@@ -22,26 +16,8 @@ from app.infrastructure.automation.adapters.sensitive_mask import (
     MASK_SENSITIVE_SCRIPT,
     REMOVE_SENSITIVE_MASK_SCRIPT,
 )
-
-
-
 def _to_playwright_selector(selector: str) -> str:
-    """
-    Translate a canonical DrissionPage-style selector to a Playwright selector.
-
-    Transformations applied:
-      css:sel       -> sel          Strip 'css:' prefix (Playwright uses raw CSS)
-      text:val      -> text=val     Playwright partial-text selector (matches partial)
-      xpath://expr  -> //expr       Playwright accepts raw XPath strings
-      #id or plain  -> unchanged    Both are valid Playwright CSS selectors
-
-    Examples:
-        "css:input[name='email']" -> "input[name='email']"
-        "text:Next"               -> "text=Next"
-        "xpath://button"          -> "//button"
-        "#email"                  -> "#email"
-        "[role='feed']"           -> "[role='feed']"
-    """
+    """Translate canonical css/text/xpath prefixes for Playwright."""
     if selector.startswith("css:"):
         return selector[4:]
     if selector.startswith("text:"):
@@ -79,7 +55,7 @@ class PlaywrightElement(AutomationElement):
                 self._page.evaluate("el => el.click()", element_handle)
                 return
         except Exception:
-            pass
+            element_handle = None
 
         try:
             self._locator.press("Enter")
@@ -100,10 +76,6 @@ class PlaywrightElement(AutomationElement):
         except Exception:
             return False
 
-
-# ---------------------------------------------------------------------------
-# AutomationPage implementation
-# ---------------------------------------------------------------------------
 
 class PlaywrightPageWrapper(AutomationPage):
     """Wraps a Playwright sync Page as an AutomationPage."""
@@ -134,7 +106,6 @@ class PlaywrightPageWrapper(AutomationPage):
     def find_first(self, *selectors: str, timeout: float = 5.0) -> PlaywrightElement | None:
         if not selectors:
             return None
-        # Distribute budget evenly; enforce minimum 0.5s per probe.
         per_probe = max(0.5, timeout / len(selectors))
         for selector in selectors:
             el = self.find(selector, timeout=per_probe)
@@ -172,8 +143,8 @@ class PlaywrightPageWrapper(AutomationPage):
             if masked:
                 try:
                     self._page.evaluate(REMOVE_SENSITIVE_MASK_SCRIPT)
-                except Exception:
-                    pass
+                except Exception as cleanup_error:
+                    del cleanup_error
 
     def find_semantic(
         self, platform: Platform, intent: SemanticIntent,

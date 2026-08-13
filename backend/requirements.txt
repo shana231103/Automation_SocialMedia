@@ -8,4 +8,5 @@ pydantic>=2.8.2
 python-dotenv>=1.0.1
 requests>=2.32.3
 playwright>=1.44.0
-browser-use>=0.13.7
+google-genai>=2.7.0
+openai>=2.0.0
