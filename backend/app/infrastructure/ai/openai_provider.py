@@ -10,11 +10,14 @@ from pydantic import BaseModel
 
 from app.application.ai_login import (
     AIFailureCode, AILoginStrategy, AIProviderHealth, AIUsage, ProtectedObservation,
-    SelectorAssessment, SelectorInferencePort, TerminalAssessment, TerminalAssessmentPort,
+    SelectorAssessment, SelectorBatchAssessment, SelectorInferencePort,
+    TerminalAssessment, TerminalAssessmentPort,
     AIHealthPort,
 )
 from app.domain.models import LoginStatus
-from app.infrastructure.ai.openai_schemas import OpenAISelectorWire, OpenAIStatusWire
+from app.infrastructure.ai.openai_schemas import (
+    OpenAISelectorBatchWire, OpenAISelectorWire, OpenAIStatusWire,
+)
 from app.infrastructure.ai.provider_errors import map_provider_error
 from app.infrastructure.ai.status_policy import STATUS_MAP
 
@@ -50,6 +53,28 @@ class OpenAIProvider(SelectorInferencePort, TerminalAssessmentPort, AIHealthPort
         except Exception as exc:
             code, reason = map_provider_error(exc)
             return self._selector_failure(code, reason)
+
+    def predict_selectors(self, observation: ProtectedObservation, intents: tuple[str, ...],
+                          cancellation_event: threading.Event | None = None,
+                          ) -> SelectorBatchAssessment:
+        if cancellation_event and cancellation_event.is_set():
+            return self._batch_failure(intents, AIFailureCode.CANCELLED,
+                                       "Selector request cancelled")
+        prompt = ("Return one CSS or XPath selector, or null, for every requested login control. "
+                  "Use each target intent exactly once and never repeat DOM values. Targets: " +
+                  ", ".join(intents) + f"\nDOM:\n{observation.dom_snippet}")
+        try:
+            wire, usage = self._parse(self.selector_model, prompt, observation,
+                                      OpenAISelectorBatchWire, self.selector_timeout)
+            if {item.intent for item in wire.selectors} != set(intents):
+                raise ValueError("OpenAI selector batch did not cover every requested intent")
+            items = tuple((item.intent, SelectorAssessment(
+                item.selector, item.confidence, item.reasoning, self.provider, self.selector_model,
+            )) for item in wire.selectors)
+            return SelectorBatchAssessment(items, usage)
+        except Exception as exc:
+            code, reason = map_provider_error(exc)
+            return self._batch_failure(intents, code, reason)
 
     def assess_terminal(self, observation: ProtectedObservation,
                         preliminary_status: LoginStatus,
@@ -101,6 +126,12 @@ class OpenAIProvider(SelectorInferencePort, TerminalAssessmentPort, AIHealthPort
     def _selector_failure(self, code: AIFailureCode, reason: str) -> SelectorAssessment:
         return SelectorAssessment(reason=reason, provider=self.provider,
                                   model=self.selector_model, failure_code=code)
+
+    def _batch_failure(self, intents: tuple[str, ...], code: AIFailureCode,
+                       reason: str) -> SelectorBatchAssessment:
+        return SelectorBatchAssessment(tuple(
+            (intent, self._selector_failure(code, reason)) for intent in intents
+        ))
 
     def _terminal_failure(self, observation_id: str, code: AIFailureCode,
                           reason: str) -> TerminalAssessment:

@@ -154,6 +154,14 @@ class PlaywrightPageWrapper(AutomationPage):
             self, platform, intent, cancellation_event,
         )
 
+    def find_semantic_many(
+        self, platform: Platform, intents: tuple[SemanticIntent, ...],
+        cancellation_event: threading.Event | None = None,
+    ) -> dict[SemanticIntent, SemanticResolution[AutomationElement]]:
+        return self._semantic_resolver.resolve_many(
+            self, platform, intents, cancellation_event,
+        )
+
     def find_with_ai_fallback(
         self, selector: str, hint_text: str, timeout: float = 5.0,
     ) -> AutomationElement | None:

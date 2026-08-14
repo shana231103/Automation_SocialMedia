@@ -65,6 +65,12 @@ class AutomationPage(ABC):
                       ) -> SemanticResolution[AutomationElement]:
         raise NotImplementedError
 
+    def find_semantic_many(self, platform: Platform, intents: tuple[SemanticIntent, ...],
+                           cancellation_event: threading.Event | None = None,
+                           ) -> dict[SemanticIntent, SemanticResolution[AutomationElement]]:
+        return {intent: self.find_semantic(platform, intent, cancellation_event)
+                for intent in intents}
+
     @abstractmethod
     def find_with_ai_fallback(self, selector: str, hint_text: str,
                               timeout: float = 5.0) -> AutomationElement | None:

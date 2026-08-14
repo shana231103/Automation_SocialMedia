@@ -11,6 +11,7 @@ from app.infrastructure.automation.ai_login_context import AILoginContext
 from app.infrastructure.automation.locators import get_locator_spec
 from app.infrastructure.automation.page_wrapper import AutomationElement, AutomationPage
 from app.infrastructure.automation.protected_observation import capture_protected_observation
+from app.infrastructure.automation.semantic_batch_locator import SemanticBatchLocatorMixin
 from app.infrastructure.automation.semantic_types import (
     ResolutionFailure, ResolutionSource, SemanticIntent, SemanticResolution,
 )
@@ -27,7 +28,7 @@ _FAILURE_MAP = {
 }
 
 
-class SemanticLocatorResolver:
+class SemanticLocatorResolver(SemanticBatchLocatorMixin):
     MIN_CONFIDENCE, MAX_AI_ATTEMPTS, PREDICTED_SELECTOR_TIMEOUT = 0.80, 2, 2.0
 
     def __init__(self, selector_port: SelectorInferencePort | VisionClient | None = None,
@@ -67,6 +68,10 @@ class SemanticLocatorResolver:
                                      reasoning="Remote AI selector assistance is disabled")
         if self._cancelled_event(cancellation_event):
             return self._cancelled(attempts, last)
+        return self._fallback(page, spec, attempts, last)
+
+    def _fallback(self, page: AutomationPage, spec, attempts: int,
+                  last: ElementPrediction | None) -> SemanticResolution[AutomationElement]:
         try:
             element = page.find_first(*spec.selectors, timeout=spec.timeout_seconds)
         except Exception:
@@ -118,15 +123,22 @@ class SemanticLocatorResolver:
                 self.ai_context.limits.max_screenshot_bytes)
             result = self.selector_port.predict_selector(observation, intent.value, cancellation_event)
             self.ai_context.record_usage(result.usage)
-            return ElementPrediction(selector=result.selector, confidence=result.confidence,
-                                     reasoning=result.reason[:500], failure_code=_FAILURE_MAP.get(
-                                         result.failure_code, SelectorPredictionFailure.INVALID_RESPONSE)
-                                     if result.failure_code else SelectorPredictionFailure.NONE)
+            return self._to_prediction(result)
         except (TypeError, ValueError, RuntimeError):
             return ElementPrediction(failure_code=SelectorPredictionFailure.INCOMPLETE_EVIDENCE,
                                      reasoning="Protected selector evidence is unavailable")
         finally:
             reservation.release()
+
+    @staticmethod
+    def _to_prediction(result) -> ElementPrediction:
+        if result is None:
+            return ElementPrediction(failure_code=SelectorPredictionFailure.INVALID_RESPONSE,
+                                     reasoning="Selector batch omitted the requested intent")
+        failure = (_FAILURE_MAP.get(result.failure_code, SelectorPredictionFailure.INVALID_RESPONSE)
+                   if result.failure_code else SelectorPredictionFailure.NONE)
+        return ElementPrediction(selector=result.selector, confidence=result.confidence,
+                                 reasoning=result.reason[:500], failure_code=failure)
 
     def _enabled(self) -> bool:
         if hasattr(self.selector_port, "predict_element") and hasattr(self.selector_port, "is_enabled"):

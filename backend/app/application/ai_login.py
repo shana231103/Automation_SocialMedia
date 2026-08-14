@@ -93,6 +93,22 @@ class SelectorAssessment:
 
 
 @dataclass(frozen=True)
+class SelectorBatchAssessment:
+    items: tuple[tuple[str, SelectorAssessment], ...]
+    usage: AIUsage = AIUsage()
+
+    def __post_init__(self) -> None:
+        intents = tuple(intent for intent, _ in self.items)
+        if any(not intent or len(intent) > 100 for intent in intents):
+            raise ValueError("Selector batch contains an invalid intent")
+        if len(set(intents)) != len(intents):
+            raise ValueError("Selector batch intents must be unique")
+
+    def by_intent(self) -> dict[str, SelectorAssessment]:
+        return dict(self.items)
+
+
+@dataclass(frozen=True)
 class TerminalAssessment:
     status: LoginStatus | None
     confidence: float
@@ -149,6 +165,12 @@ class SelectorInferencePort(ABC):
     @abstractmethod
     def predict_selector(self, observation: ProtectedObservation, intent: str,
                          cancellation_event: threading.Event | None = None) -> SelectorAssessment:
+        raise NotImplementedError
+
+    @abstractmethod
+    def predict_selectors(self, observation: ProtectedObservation, intents: tuple[str, ...],
+                          cancellation_event: threading.Event | None = None,
+                          ) -> SelectorBatchAssessment:
         raise NotImplementedError
 
 

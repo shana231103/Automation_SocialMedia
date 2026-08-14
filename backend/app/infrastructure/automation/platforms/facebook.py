@@ -70,16 +70,18 @@ def login_facebook(
         return LoginStatus.LOGGED_IN
 
     yield log_func("Entering Facebook credentials...")
-    email_resolution = page.find_semantic(
-        Platform.FACEBOOK, SemanticIntent.EMAIL_OR_PHONE_INPUT, cancellation_event,
+    intents = (
+        SemanticIntent.EMAIL_OR_PHONE_INPUT,
+        SemanticIntent.PASSWORD_INPUT,
+        SemanticIntent.LOGIN_SUBMIT_CONTROL,
     )
+    resolutions = page.find_semantic_many(Platform.FACEBOOK, intents, cancellation_event)
+    email_resolution = resolutions[SemanticIntent.EMAIL_OR_PHONE_INPUT]
     yield log_func(_resolution_message("email input", email_resolution))
     if email_resolution.failure == ResolutionFailure.CANCELLED:
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
-    password_resolution = page.find_semantic(
-        Platform.FACEBOOK, SemanticIntent.PASSWORD_INPUT, cancellation_event,
-    )
+    password_resolution = resolutions[SemanticIntent.PASSWORD_INPUT]
     yield log_func(_resolution_message("password input", password_resolution))
     if password_resolution.failure == ResolutionFailure.CANCELLED:
         yield log_func("Facebook login was cancelled.")
@@ -101,16 +103,14 @@ def login_facebook(
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
 
-    submit_resolution = page.find_semantic(
-        Platform.FACEBOOK, SemanticIntent.LOGIN_SUBMIT_CONTROL, cancellation_event,
-    )
+    submit_resolution = resolutions[SemanticIntent.LOGIN_SUBMIT_CONTROL]
     yield log_func(_resolution_message("submit control", submit_resolution))
     if submit_resolution.failure == ResolutionFailure.CANCELLED:
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
     login_btn = submit_resolution.element
     try:
-        if login_btn:
+        if login_btn and login_btn.exists():
             login_btn.click()
         else:
             yield log_func("Facebook submit control was not resolved; submitting by keyboard.")

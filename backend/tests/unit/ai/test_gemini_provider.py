@@ -13,7 +13,15 @@ from app.infrastructure.ai.gemini_provider import GeminiProvider
 class FakeModels:
     def generate_content(self, **kwargs):
         properties = kwargs["config"]["response_json_schema"]["properties"]
-        if "selector" in properties:
+        if "selectors" in properties:
+            payload = {"selectors": [
+                {"intent": intent, "selector": f"css:#{index}", "confidence": .9,
+                 "reasoning": "visible"}
+                for index, intent in enumerate((
+                    "email_or_phone_input", "password_input", "login_submit_control",
+                ))
+            ]}
+        elif "selector" in properties:
             payload = {"selector": "css:#login", "confidence": .9, "reasoning": "visible"}
         else:
             payload = {"status": "logged_out", "confidence": .8, "reasoning": "login form",
@@ -35,6 +43,12 @@ class GeminiProviderTests(unittest.TestCase):
         self.assertEqual(selector.selector, "css:#login")
         self.assertEqual(terminal.status, LoginStatus.LOGGED_OUT)
         self.assertEqual(selector.usage.total_tokens, 12)
+
+    def test_batch_selector_returns_three_intents_from_one_request(self):
+        intents = ("email_or_phone_input", "password_input", "login_submit_control")
+        batch = self.provider.predict_selectors(self.observation, intents)
+        self.assertEqual(tuple(batch.by_intent()), intents)
+        self.assertEqual(batch.usage.total_tokens, 12)
 
     def test_health_advertises_structured_capabilities_without_network_call(self):
         health = self.provider.get_health()

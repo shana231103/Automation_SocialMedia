@@ -39,6 +39,7 @@ class FakePage:
         self._url = "https://www.facebook.com/"
         self.resolutions = resolutions
         self.semantic_calls = []
+        self.semantic_batch_calls = []
 
     def goto(self, url):
         self._url = url
@@ -49,6 +50,10 @@ class FakePage:
     def find_semantic(self, platform, intent, cancellation_event=None):
         self.semantic_calls.append((platform, intent, cancellation_event))
         return self.resolutions[intent]
+
+    def find_semantic_many(self, platform, intents, cancellation_event=None):
+        self.semantic_batch_calls.append((platform, intents, cancellation_event))
+        return {intent: self.resolutions[intent] for intent in intents}
 
     @property
     def url(self):
@@ -101,18 +106,20 @@ class FacebookSemanticLoginTests(unittest.TestCase):
         self.assertEqual(email.inputs, ["user"])
         self.assertEqual(password.inputs, ["secret"])
         self.assertEqual(submit.clicks, [False])
-        self.assertEqual(
-            [call[1] for call in page.semantic_calls],
-            [SemanticIntent.EMAIL_OR_PHONE_INPUT, SemanticIntent.PASSWORD_INPUT,
-             SemanticIntent.LOGIN_SUBMIT_CONTROL],
-        )
-        self.assertTrue(all(call[0] == Platform.FACEBOOK for call in page.semantic_calls))
+        self.assertFalse(page.semantic_calls)
+        self.assertEqual(len(page.semantic_batch_calls), 1)
+        self.assertEqual(page.semantic_batch_calls[0][0], Platform.FACEBOOK)
+        self.assertEqual(page.semantic_batch_calls[0][1], (
+            SemanticIntent.EMAIL_OR_PHONE_INPUT, SemanticIntent.PASSWORD_INPUT,
+            SemanticIntent.LOGIN_SUBMIT_CONTROL,
+        ))
 
     def test_unresolved_credentials_stop_before_input(self):
         email = FakeElement()
         page = FakePage({
             SemanticIntent.EMAIL_OR_PHONE_INPUT: resolved(email),
             SemanticIntent.PASSWORD_INPUT: unresolved(),
+            SemanticIntent.LOGIN_SUBMIT_CONTROL: unresolved(),
         })
         status, events = run(login_facebook(page, "user", "secret", log))
         self.assertEqual(status, LoginStatus.LOGGED_OUT)
@@ -135,10 +142,11 @@ class FacebookSemanticLoginTests(unittest.TestCase):
     def test_cancelled_resolution_stops_without_fallback(self):
         page = FakePage({SemanticIntent.EMAIL_OR_PHONE_INPUT: unresolved(
             ResolutionFailure.CANCELLED,
-        )})
+        ), SemanticIntent.PASSWORD_INPUT: unresolved(),
+            SemanticIntent.LOGIN_SUBMIT_CONTROL: unresolved()})
         status, events = run(login_facebook(page, "user", "secret", log))
         self.assertEqual(status, LoginStatus.LOGGED_OUT)
-        self.assertEqual(len(page.semantic_calls), 1)
+        self.assertEqual(len(page.semantic_batch_calls), 1)
         self.assertIn("cancelled", events[-1]["message"])
 
 

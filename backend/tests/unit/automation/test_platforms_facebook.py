@@ -185,9 +185,9 @@ class TestFacebookLoginScript(unittest.TestCase):
                 next(generator)
 
         self.assertEqual(stopped.exception.value, LoginStatus.LOGGED_OUT)
-        credential_calls = self.page.find_first_calls[-2:]
-        self.assertEqual([call[1] for call in credential_calls], [1.5, 1.5])
-        self.assertEqual(len(self.page.semantic_calls), 2)
+        batch_calls = self.page.find_first_calls[-3:]
+        self.assertEqual([call[1] for call in batch_calls], [1.5, 1.5, 3.0])
+        self.assertEqual(len(self.page.semantic_calls), 3)
         self.assertIn(
             "Facebook credential inputs could not be resolved; manual intervention is required.",
             self.logs,

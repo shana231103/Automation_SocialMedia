@@ -3,11 +3,14 @@
 import threading
 import unittest
 
+from app.application.ai_login import AIUsage, SelectorAssessment, SelectorBatchAssessment
 from app.domain.models import Platform
+from app.infrastructure.ai.config import AILimits
 from app.infrastructure.ai.vision_client import (
     ElementPrediction, SelectorPredictionFailure,
 )
 from app.infrastructure.automation.locators import get_locator_spec
+from app.infrastructure.automation.ai_login_context import AILoginContextFactory
 from app.infrastructure.automation.semantic_locator import SemanticLocatorResolver
 from app.infrastructure.automation.semantic_types import (
     ResolutionFailure, ResolutionSource, SemanticIntent,
@@ -39,6 +42,7 @@ class FakePage:
         self.cancel_on_capture = None
         self.capture_error = False
         self.html = '<input name="email"><button type="submit">Log in</button>'
+        self.url = "https://www.facebook.com/"
 
     def find(self, selector, timeout=5.0):
         self.find_calls.append((selector, timeout))
@@ -54,12 +58,51 @@ class FakePage:
             raise RuntimeError("capture failed")
         if self.cancel_on_capture:
             self.cancel_on_capture.set()
-        return "image"
+        return "aW1n"
+
+
+class FakeBatchPort:
+    def __init__(self, missing=()):
+        self.calls = 0
+        self.missing = set(missing)
+
+    def predict_selectors(self, observation, intents, cancellation_event=None):
+        self.calls += 1
+        items = tuple((intent, SelectorAssessment(
+            f"css:#{intent}", .91, "visible", "fake", "model",
+        )) for intent in intents if intent not in self.missing)
+        return SelectorBatchAssessment(items, AIUsage(30, 6, 36))
 def prediction(selector=None, confidence=0.0, failure=SelectorPredictionFailure.NONE):
     return ElementPrediction(
         selector=selector, confidence=confidence, reasoning="test", failure_code=failure,
     )
 class SemanticLocatorTests(unittest.TestCase):
+    def test_batch_resolves_three_intents_with_one_provider_call_and_one_usage_record(self):
+        intents = (SemanticIntent.EMAIL_OR_PHONE_INPUT, SemanticIntent.PASSWORD_INPUT,
+                   SemanticIntent.LOGIN_SUBMIT_CONTROL)
+        elements = {f"css:#{intent.value}": object() for intent in intents}
+        port = FakeBatchPort()
+        context = AILoginContextFactory(AILimits()).create()
+        results = SemanticLocatorResolver(port, context).resolve_many(
+            FakePage(elements), Platform.FACEBOOK, intents,
+        )
+        self.assertEqual(port.calls, 1)
+        self.assertTrue(all(result.source == ResolutionSource.AI for result in results.values()))
+        metrics = context.snapshot_metrics()
+        self.assertEqual((metrics.calls, metrics.input_tokens, metrics.output_tokens), (1, 30, 6))
+
+    def test_batch_uses_registry_only_for_an_omitted_intent(self):
+        missing = SemanticIntent.PASSWORD_INPUT
+        intents = (SemanticIntent.EMAIL_OR_PHONE_INPUT, missing,
+                   SemanticIntent.LOGIN_SUBMIT_CONTROL)
+        elements = {f"css:#{intent.value}": object() for intent in intents if intent != missing}
+        elements["css:input[name='pass']"] = object()
+        results = SemanticLocatorResolver(
+            FakeBatchPort({missing.value}), AILoginContextFactory(AILimits(
+                max_selector_attempts=1)).create(),
+        ).resolve_many(FakePage(elements), Platform.FACEBOOK, intents)
+        self.assertEqual(results[missing].source, ResolutionSource.REGISTRY)
+        self.assertEqual(results[SemanticIntent.EMAIL_OR_PHONE_INPUT].source, ResolutionSource.AI)
     def test_facebook_registry_is_complete_ordered_and_immutable(self):
         expected = {
             SemanticIntent.EMAIL_OR_PHONE_INPUT: ("css:input[name='email']", 1.5),

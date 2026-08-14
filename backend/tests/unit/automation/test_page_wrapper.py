@@ -76,6 +76,19 @@ class TestSemanticResolverDelegation(unittest.TestCase):
                     wrapper, Platform.FACEBOOK, SemanticIntent.PASSWORD_INPUT, None,
                 )
 
+    def test_both_adapters_delegate_batch_semantic_resolution(self):
+        intents = (SemanticIntent.EMAIL_OR_PHONE_INPUT, SemanticIntent.PASSWORD_INPUT)
+        for wrapper_type in (DrissionPageWrapper, PlaywrightPageWrapper):
+            with self.subTest(wrapper=wrapper_type.__name__):
+                resolver = MagicMock()
+                expected = object()
+                resolver.resolve_many.return_value = expected
+                wrapper = wrapper_type(MagicMock(), resolver)
+                self.assertIs(wrapper.find_semantic_many(Platform.FACEBOOK, intents), expected)
+                resolver.resolve_many.assert_called_once_with(
+                    wrapper, Platform.FACEBOOK, intents, None,
+                )
+
     def test_both_adapters_delegate_legacy_fallback(self):
         for wrapper_type in (DrissionPageWrapper, PlaywrightPageWrapper):
             with self.subTest(wrapper=wrapper_type.__name__):

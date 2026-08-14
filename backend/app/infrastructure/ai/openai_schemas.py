@@ -16,6 +16,15 @@ class OpenAISelectorWire(BaseModel):
         return value.strip() if value and value.strip() else None
 
 
+class OpenAISelectorBatchItemWire(OpenAISelectorWire):
+    intent: str = Field(min_length=1, max_length=100)
+
+
+class OpenAISelectorBatchWire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    selectors: list[OpenAISelectorBatchItemWire] = Field(min_length=1, max_length=10)
+
+
 class OpenAIStatusWire(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: str
@@ -38,4 +47,3 @@ class OpenAIStatusWire(BaseModel):
         if any(not item.strip() or len(item) > 200 for item in value):
             raise ValueError("Invalid evidence item")
         return value
-
