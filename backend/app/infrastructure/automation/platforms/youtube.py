@@ -5,9 +5,12 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Dict, Generator
 
-from app.domain.models import LoginStatus
+from app.domain.models import LoginStatus, Platform
 from app.infrastructure.automation.page_wrapper import AutomationPage
-from app.infrastructure.automation.platforms._helpers import host_and_path, wait_or_cancel
+from app.infrastructure.automation.platforms._helpers import (
+    host_and_path, semantic_candidate_visible, semantic_resolution_message, wait_or_cancel,
+)
+from app.infrastructure.automation.semantic_types import ResolutionFailure, SemanticIntent
 
 
 def _is_youtube_destination(url: str) -> bool:
@@ -41,6 +44,24 @@ def _has_google_login_error(page: AutomationPage) -> bool:
     )
 
 
+def _wait_for_google_password_stage(
+    page: AutomationPage,
+    cancellation_event: threading.Event | None,
+) -> str:
+    for _ in range(16):
+        if _has_google_login_error(page):
+            return "account_error"
+        if _is_google_dead(page, page.url):
+            return "dead"
+        if _is_google_checkpoint(page, page.url):
+            return "checkpoint"
+        if semantic_candidate_visible(page, Platform.YOUTUBE, SemanticIntent.PASSWORD_INPUT):
+            return "ready"
+        if wait_or_cancel(0.5, cancellation_event):
+            return "cancelled"
+    return "timeout"
+
+
 def login_youtube(
     page: AutomationPage,
     username: str,
@@ -49,73 +70,100 @@ def login_youtube(
     cancellation_event: threading.Event | None = None,
 ) -> Generator[Dict[str, Any], None, LoginStatus]:
     yield log_func("Opening Google sign-in for YouTube...")
-    page.goto("https://accounts.google.com/ServiceLogin?service=youtube&continue=https://www.youtube.com/")
+    page.goto(
+        "https://accounts.google.com/ServiceLogin?service=youtube&continue=https://www.youtube.com/"
+    )
     if _is_youtube_destination(page.url) and page.find("css:#avatar-btn", timeout=2):
         yield log_func("An existing Google/YouTube session was detected.")
         return LoginStatus.LOGGED_IN
 
-    email_input = page.find("css:input[type='email']", timeout=5)
-    if not email_input:
-        email_input = page.find("#identifierId", timeout=2)
-    if not email_input:
-        email_input = page.find_with_ai_fallback(
-            "css:input[type='email']", "Google email input", timeout=2
-        )
-    if not email_input:
-        yield log_func("Google email input was not found.")
-        return LoginStatus.LOGGED_OUT
-
-    email_input.input(username)
-    if wait_or_cancel(1, cancellation_event):
-        yield log_func("Google/YouTube login was cancelled.")
-        return LoginStatus.LOGGED_OUT
-    next_btn = page.find_first(
-        "css:#identifierNext",
-        "xpath://button[.//span[text()='Next']]",
-        "xpath://button[.//span[text()='Tiếp theo']]",
-        timeout=3,
-    )
-    if next_btn:
-        next_btn.click()
-    else:
-        email_input.press("Enter")
-
-    pass_input = None
-    account_error = False
-    for _ in range(16):
-        pass_input = page.find("css:input[type='password']", timeout=0.1)
-        account_error = bool(
-            page.find("text:Couldn't find your Google Account", timeout=0.1)
-        )
-        if pass_input or account_error:
+    for _ in range(10):
+        if semantic_candidate_visible(
+            page, Platform.YOUTUBE, SemanticIntent.EMAIL_OR_PHONE_INPUT,
+        ):
             break
         if wait_or_cancel(0.5, cancellation_event):
             yield log_func("Google/YouTube login was cancelled.")
             return LoginStatus.LOGGED_OUT
-    if account_error:
+    identifier_intents = (
+        SemanticIntent.EMAIL_OR_PHONE_INPUT,
+        SemanticIntent.CONTINUE_CONTROL,
+    )
+    identifier_results = page.find_semantic_many(
+        Platform.YOUTUBE, identifier_intents, cancellation_event,
+    )
+    email_resolution = identifier_results[SemanticIntent.EMAIL_OR_PHONE_INPUT]
+    continue_resolution = identifier_results[SemanticIntent.CONTINUE_CONTROL]
+    for label, resolution in (
+        ("email input", email_resolution),
+        ("continue control", continue_resolution),
+    ):
+        yield log_func(semantic_resolution_message("Google", label, resolution))
+        if resolution.failure == ResolutionFailure.CANCELLED:
+            yield log_func("Google/YouTube login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+
+    email_input = email_resolution.element
+    if not email_input:
+        yield log_func("Google email input was not found.")
+        return LoginStatus.LOGGED_OUT
+    email_input.input(username)
+    if wait_or_cancel(1, cancellation_event):
+        yield log_func("Google/YouTube login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    next_btn = continue_resolution.element
+    if next_btn:
+        next_btn.click()
+    else:
+        yield log_func("Google continue control was not resolved; submitting by keyboard.")
+        email_input.press("Enter")
+    stage = _wait_for_google_password_stage(page, cancellation_event)
+    if stage == "cancelled":
+        yield log_func("Google/YouTube login was cancelled.")
+        return LoginStatus.LOGGED_OUT
+    if stage == "account_error":
         yield log_func("The Google account was not found.")
         return LoginStatus.LOGGED_OUT
-    if not pass_input:
-        pass_input = page.find_with_ai_fallback(
-            "css:input[type='password']", "Google password input", timeout=2
-        )
-    if not pass_input:
-        yield log_func("Google password input was not found; a CAPTCHA or challenge may be blocking it.")
+    if stage == "dead":
+        yield log_func("Google reports that the account is disabled.")
+        return LoginStatus.DEAD
+    if stage == "checkpoint":
+        yield log_func("Google requires a security verification.")
         return LoginStatus.CHECKPOINT
 
+    password_intents = (
+        SemanticIntent.PASSWORD_INPUT,
+        SemanticIntent.LOGIN_SUBMIT_CONTROL,
+    )
+    password_results = page.find_semantic_many(
+        Platform.YOUTUBE, password_intents, cancellation_event,
+    )
+    pass_resolution = password_results[SemanticIntent.PASSWORD_INPUT]
+    submit_resolution = password_results[SemanticIntent.LOGIN_SUBMIT_CONTROL]
+    for label, resolution in (
+        ("password input", pass_resolution),
+        ("submit control", submit_resolution),
+    ):
+        yield log_func(semantic_resolution_message("Google", label, resolution))
+        if resolution.failure == ResolutionFailure.CANCELLED:
+            yield log_func("Google/YouTube login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+
+    pass_input = pass_resolution.element
+    if not pass_input:
+        yield log_func(
+            "Google password input was not found; a CAPTCHA or challenge may be blocking it."
+        )
+        return LoginStatus.CHECKPOINT
     pass_input.input(password)
     if wait_or_cancel(1, cancellation_event):
         yield log_func("Google/YouTube login was cancelled.")
         return LoginStatus.LOGGED_OUT
-    password_next = page.find_first(
-        "css:#passwordNext",
-        "xpath://button[.//span[text()='Next']]",
-        "xpath://button[.//span[text()='Tiếp theo']]",
-        timeout=3,
-    )
+    password_next = submit_resolution.element
     if password_next:
         password_next.click()
     else:
+        yield log_func("Google submit control was not resolved; submitting by keyboard.")
         pass_input.press("Enter")
 
     for _ in range(20):
@@ -133,7 +181,9 @@ def login_youtube(
             yield log_func("Google rejected the login credentials.")
             return LoginStatus.LOGGED_OUT
         if _is_google_checkpoint(page, url):
-            yield log_func("Google requires a security verification; waiting up to 60 seconds for manual completion.")
+            yield log_func(
+                "Google requires a security verification; waiting up to 60 seconds for manual completion."
+            )
             for _ in range(120):
                 if wait_or_cancel(0.5, cancellation_event):
                     yield log_func("Google/YouTube login was cancelled.")
@@ -146,6 +196,5 @@ def login_youtube(
                     return LoginStatus.DEAD
             yield log_func("Google verification was not completed before the timeout.")
             return LoginStatus.CHECKPOINT
-
     yield log_func("Google/YouTube login did not reach a conclusive state before the timeout.")
     return LoginStatus.LOGGED_OUT

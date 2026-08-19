@@ -6,11 +6,17 @@ from typing import Mapping
 
 from app.domain.models import Platform
 from app.infrastructure.automation.locators.facebook import FACEBOOK_LOCATORS
+from app.infrastructure.automation.locators.tiktok import TIKTOK_LOCATORS
+from app.infrastructure.automation.locators.twitter import TWITTER_LOCATORS
+from app.infrastructure.automation.locators.youtube import YOUTUBE_LOCATORS
 from app.infrastructure.automation.semantic_types import LocatorSpec, SemanticIntent
 
 
 _REGISTRIES: Mapping[Platform, Mapping[SemanticIntent, LocatorSpec]] = MappingProxyType({
     Platform.FACEBOOK: FACEBOOK_LOCATORS,
+    Platform.TIKTOK: TIKTOK_LOCATORS,
+    Platform.TWITTER: TWITTER_LOCATORS,
+    Platform.YOUTUBE: YOUTUBE_LOCATORS,
 })
 
 

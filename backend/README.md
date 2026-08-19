@@ -28,6 +28,8 @@ AI mặc định tắt (`AI_ENABLED=false`), nên cấu hình mặc định khô
 - `semantic`: Gemini hoặc OpenAI hỗ trợ tìm selector và đánh giá trạng thái cuối. AI lỗi hoặc cấu hình sai sẽ suy giảm an toàn về selector/status xác định sẵn.
 - `/api/ai/status`: trả về health/capability trung lập, không gọi model và không lộ secret.
 
+Selector semantic được gom theo cùng một trạng thái trang: Facebook và TikTok thường dùng một request; YouTube và X dùng hai request vì màn hình tài khoản và mật khẩu tách biệt. Mỗi stage có tối đa hai lần thử, sau đó fallback độc lập theo registry. Một kết quả chưa thành công có thể dùng thêm một terminal assessment; mặc định `AI_MAX_CALLS_PER_LOGIN=16` bao phủ worst case năm request của YouTube/X. Nếu cấu hình giới hạn thấp hơn, hệ thống dừng gọi AI và tiếp tục fallback xác định sẵn.
+
 Ảnh chụp đã che trường nhạy cảm, URL đã loại credential/query/fragment và DOM không chứa giá trị form mới được gửi tới provider. Username/password không được đưa vào prompt hoặc lịch sử model. Dữ liệu vẫn được xử lý từ xa theo điều khoản của provider và có thể phát sinh chi phí token; hãy dùng key giới hạn quyền và ngân sách.
 
 Gemini và OpenAI chỉ đưa ra kết quả có cấu trúc cho selector và trạng thái cuối; provider không điều khiển trình duyệt. CAPTCHA, MFA và security challenge được phân loại theo chính sách xác định sẵn, không được tự động giải hoặc nhập mã xác minh.

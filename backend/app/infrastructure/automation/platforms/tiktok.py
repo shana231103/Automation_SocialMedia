@@ -5,9 +5,12 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Dict, Generator
 
-from app.domain.models import LoginStatus
+from app.domain.models import LoginStatus, Platform
 from app.infrastructure.automation.page_wrapper import AutomationPage
-from app.infrastructure.automation.platforms._helpers import wait_or_cancel
+from app.infrastructure.automation.platforms._helpers import (
+    semantic_candidate_visible, semantic_resolution_message, wait_or_cancel,
+)
+from app.infrastructure.automation.semantic_types import ResolutionFailure, SemanticIntent
 
 
 def _is_tiktok_authenticated(page: AutomationPage) -> bool:
@@ -51,16 +54,36 @@ def login_tiktok(
         yield log_func("An existing TikTok session was detected.")
         return LoginStatus.LOGGED_IN
 
-    user_input = page.find("css:input[name='username']", timeout=5)
-    pass_input = page.find("css:input[type='password']", timeout=5)
-    if not user_input:
-        user_input = page.find_with_ai_fallback(
-            "css:input[name='username']", "TikTok email or username input", timeout=2
-        )
-    if not pass_input:
-        pass_input = page.find_with_ai_fallback(
-            "css:input[type='password']", "TikTok password input", timeout=2
-        )
+    for _ in range(10):
+        if semantic_candidate_visible(
+            page, Platform.TIKTOK, SemanticIntent.EMAIL_OR_PHONE_INPUT,
+        ):
+            break
+        if wait_or_cancel(0.5, cancellation_event):
+            yield log_func("TikTok login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+
+    intents = (
+        SemanticIntent.EMAIL_OR_PHONE_INPUT,
+        SemanticIntent.PASSWORD_INPUT,
+        SemanticIntent.LOGIN_SUBMIT_CONTROL,
+    )
+    resolutions = page.find_semantic_many(Platform.TIKTOK, intents, cancellation_event)
+    user_resolution = resolutions[SemanticIntent.EMAIL_OR_PHONE_INPUT]
+    pass_resolution = resolutions[SemanticIntent.PASSWORD_INPUT]
+    submit_resolution = resolutions[SemanticIntent.LOGIN_SUBMIT_CONTROL]
+    for label, resolution in (
+        ("email or username input", user_resolution),
+        ("password input", pass_resolution),
+        ("submit control", submit_resolution),
+    ):
+        yield log_func(semantic_resolution_message("TikTok", label, resolution))
+        if resolution.failure == ResolutionFailure.CANCELLED:
+            yield log_func("TikTok login was cancelled.")
+            return LoginStatus.LOGGED_OUT
+
+    user_input = user_resolution.element
+    pass_input = pass_resolution.element
     if not user_input or not pass_input:
         yield log_func("TikTok credential inputs were not found.")
         return LoginStatus.LOGGED_OUT
@@ -74,10 +97,11 @@ def login_tiktok(
         yield log_func("TikTok login was cancelled.")
         return LoginStatus.LOGGED_OUT
 
-    submit_btn = page.find("css:button[type='submit']", timeout=2)
+    submit_btn = submit_resolution.element
     if submit_btn:
         submit_btn.click()
     else:
+        yield log_func("TikTok submit control was not resolved; submitting by keyboard.")
         pass_input.press("Enter")
     yield log_func("Waiting for TikTok to respond; solve any CAPTCHA manually if shown.")
 

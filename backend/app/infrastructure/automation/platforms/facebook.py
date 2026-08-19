@@ -7,9 +7,11 @@ from typing import Any, Callable, Dict, Generator
 
 from app.domain.models import LoginStatus, Platform
 from app.infrastructure.automation.page_wrapper import AutomationPage
-from app.infrastructure.automation.platforms._helpers import host_and_path, wait_or_cancel
+from app.infrastructure.automation.platforms._helpers import (
+    host_and_path, semantic_resolution_message, wait_or_cancel,
+)
 from app.infrastructure.automation.semantic_types import (
-    ResolutionFailure, ResolutionSource, SemanticIntent,
+    ResolutionFailure, SemanticIntent,
 )
 
 
@@ -45,16 +47,6 @@ def _cancelled(cancellation_event: threading.Event | None, seconds: float) -> bo
     return wait_or_cancel(seconds, cancellation_event)
 
 
-def _resolution_message(label: str, resolution: Any) -> str:
-    if resolution.source == ResolutionSource.AI:
-        return f"Facebook {label} resolved by the configured AI provider in {resolution.ai_attempts} attempt(s)."
-    if resolution.source == ResolutionSource.REGISTRY:
-        if resolution.ai_attempts:
-            return f"Facebook {label} resolved by deterministic fallback after AI attempts."
-        return f"Facebook {label} resolved by deterministic fallback."
-    return f"Facebook {label} was not resolved after {resolution.ai_attempts} AI attempt(s)."
-
-
 def login_facebook(
     page: AutomationPage,
     username: str,
@@ -77,12 +69,12 @@ def login_facebook(
     )
     resolutions = page.find_semantic_many(Platform.FACEBOOK, intents, cancellation_event)
     email_resolution = resolutions[SemanticIntent.EMAIL_OR_PHONE_INPUT]
-    yield log_func(_resolution_message("email input", email_resolution))
+    yield log_func(semantic_resolution_message("Facebook", "email input", email_resolution))
     if email_resolution.failure == ResolutionFailure.CANCELLED:
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
     password_resolution = resolutions[SemanticIntent.PASSWORD_INPUT]
-    yield log_func(_resolution_message("password input", password_resolution))
+    yield log_func(semantic_resolution_message("Facebook", "password input", password_resolution))
     if password_resolution.failure == ResolutionFailure.CANCELLED:
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT
@@ -104,7 +96,7 @@ def login_facebook(
         return LoginStatus.LOGGED_OUT
 
     submit_resolution = resolutions[SemanticIntent.LOGIN_SUBMIT_CONTROL]
-    yield log_func(_resolution_message("submit control", submit_resolution))
+    yield log_func(semantic_resolution_message("Facebook", "submit control", submit_resolution))
     if submit_resolution.failure == ResolutionFailure.CANCELLED:
         yield log_func("Facebook login was cancelled.")
         return LoginStatus.LOGGED_OUT

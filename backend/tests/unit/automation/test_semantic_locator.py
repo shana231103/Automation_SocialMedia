@@ -113,7 +113,7 @@ class SemanticLocatorTests(unittest.TestCase):
         for intent, (first, budget) in expected.items():
             spec = get_locator_spec(Platform.FACEBOOK, intent)
             self.assertEqual((spec.selectors[0], spec.timeout_seconds), (first, budget))
-        self.assertIsNone(get_locator_spec(Platform.YOUTUBE, SemanticIntent.PASSWORD_INPUT))
+        self.assertIsNone(get_locator_spec(Platform.TIKTOK, SemanticIntent.CONTINUE_CONTROL))
 
     def test_ai_first_success(self):
         element = object()
